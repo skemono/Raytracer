@@ -4,7 +4,7 @@ Un raytracer simple implementado en Python que renderiza escenas 3D usando el al
 
 ## 🖼️ Resultado
 
-![Cerdito Raytracer](pig_raytracer_final.bmp)
+![Cerdito Raytracer](pig_raytracer.bmp)
 
 *Imagen generada por el raytracer mostrando un cerdito 3D compuesto por esferas con iluminación realista*
 
