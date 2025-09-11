@@ -22,9 +22,17 @@ class Renderer(object):
 
         self.glClear()
 
-        self.scene = [ ]
+        # Escena y luces
+        self.scene = []
+        self.lights = []
 
-        self.lights = [ ]
+        # Environment map y recursión para reflejos/refracciones
+        self.environmentMap = None
+        self.maxDepth = 3
+        # Controles de orientación/escala del environment map
+        self.envYaw = 0.0     # rotación horizontal (radianes)
+        self.envPitch = 0.0   # rotación vertical (radianes)
+        self.envFovScale = 0.4 
 
     
     def glViewport(self, x, y, width, height):
@@ -159,11 +167,11 @@ class Renderer(object):
     
     def glRender(self):
         # Render all pixels directly to frameBuffer (no display updates)
-        total_pixels = self.vpWidth * self.vpHeight
+        total_pixels = max(1, self.vpWidth * self.vpHeight)
         rendered_pixels = 0
-        
-        print(f"Rendering {total_pixels} pixels...")
-        
+
+        print(f"Renderizando {total_pixels} pixeles...")
+
         for i in range(self.vpWidth):
             for j in range(self.vpHeight):
                 x = i + self.vpX
@@ -183,27 +191,20 @@ class Renderer(object):
                     dir = np.array([pX, pY, pZ], dtype=float)
                     dir = dir / np.linalg.norm(dir)  # Normalize
 
-                    # Cast ray from camera position
-                    hit = self.glCastRay(self.camera.translation, dir)
+                    # Color del rayo con soporte de env map / reflejos / refracciones
+                    color = self.glRayColor(self.camera.translation, dir, 0)
+                    color_255 = [int(c * 255) for c in color]
+                    self.frameBuffer[x][y] = color_255
 
-                    if hit and hit.obj.material:
-                        color = hit.obj.material.GetSurfaceColor(hit, self)
-                        # Guardar resultado solo en frameBuffer (sin dibujar)
-                        color_255 = [int(c * 255) for c in color]
-                        self.frameBuffer[x][y] = color_255
-                    else:
-                        # Color de fondo
-                        color_255 = [int(c * 255) for c in self.ClearColor]
-                        self.frameBuffer[x][y] = color_255
-                
                 rendered_pixels += 1
-                
-                # Show progress every 10%
-                if rendered_pixels % (total_pixels // 10) == 0:
+
+                # Mostrar progreso cada 10%
+                step = max(1, total_pixels // 10)
+                if rendered_pixels % step == 0:
                     progress = (rendered_pixels / total_pixels) * 100
-                    print(f"Progress: {progress:.0f}% ({rendered_pixels}/{total_pixels} pixels)")
-        
-        print("Rendering complete!")
+                    print(f"Progreso: {progress:.0f}% ({rendered_pixels}/{total_pixels} pixeles)")
+
+        print("\u00a1Renderizado completo!")
     
 
     
@@ -221,5 +222,38 @@ class Renderer(object):
                         hit = intercept
                         depth = intercept.distance
         return hit
+
+    def glRayColor(self, origin, direction, depth=0):
+        """Devuelve el color [0,1] del rayo con recursión limitada."""
+        hit = self.glCastRay(origin, direction)
+        if hit and hit.obj.material:
+            # Delegar en el material (puede llamar recursivamente)
+            return hit.obj.material.GetSurfaceColor(hit, self, depth)
+
+        # Fondo: environment map si existe
+        if self.environmentMap is not None:
+            # Dirección normalizada en espacio de cámara
+            d = direction / (np.linalg.norm(direction) + 1e-12)
+
+            # Yaw/pitch (suponiendo forward -Z):
+            # yaw = atan2(x, -z) en [-pi, pi]
+            # pitch = asin(y) en [-pi/2, pi/2]
+            yaw = np.arctan2(d[0], -d[2])
+            pitch = np.arcsin(np.clip(d[1], -1.0, 1.0))
+
+            # Aplicar controles de escala (zoom) y rotación
+            f = max(1e-6, float(self.envFovScale))
+            yaw = yaw / f + float(self.envYaw)
+            pitch = pitch / f + float(self.envPitch)
+
+            # Mapear a UV equirectangular
+            u = (yaw + np.pi) / (2.0 * np.pi)
+            v = 0.5 - (pitch / np.pi)
+            # envolver U para evitar costuras
+            u = (u % 1.0 + 1.0) % 1.0
+            return self.environmentMap.getColor(u, v)
+
+        # Sin env map, usar color claro de fondo
+        return self.ClearColor
     
     

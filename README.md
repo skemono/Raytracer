@@ -1,48 +1,54 @@
-# 🐷 Raytracer - Cerdito 3D
+# Raytracer en Python (entregable con environment map + materiales)
 
-Un raytracer simple implementado en Python que renderiza escenas 3D usando el algoritmo de trazado de rayos. Este proyecto genera una imagen de un cerdito adorable compuesto por esferas.
+Un raytracer simple en Python que renderiza escenas 3D con materiales opacos, reflectantes y transparentes, e incluye un environment map como fondo.
 
-## 🖼️ Resultado
+## 🖼️ Resultados
 
-![Cerdito Raytracer](pig_raytracer.bmp)
+- Escena de 6 esferas con environment map (actual):
 
-*Imagen generada por el raytracer mostrando un cerdito 3D compuesto por esferas con iluminación realista*
+  ![Seis Esferas](six_spheres_env.bmp)
+
 
 ## 🚀 Características
 
-- **Motor de Raytracing**: Implementación completa del algoritmo de trazado de rayos
-- **Figuras geométricas**: Soporte para esferas con intersección precisa
-- **Materiales**: Sistema de materiales con componentes difusa, especular y ambiente
-- **Iluminación**: 
-  - Luz ambiente uniforme
-  - Luz direccional con sombras
-  - Modelo de sombreado Phong
-- **Exportación**: Generación de imágenes en formato BMP
-- **Escena personalizada**: Cerdito 3D con anatomía detallada
+- Motor de raytracing con cámara y proyección.
+- Geometría: esferas con intersección precisa.
+- Materiales (Phong) con soporte de:
+  - Difuso, especular, ambiente.
+  - Reflexión y refracción con Fresnel e índice de refracción (IOR).
+- Iluminación:
+  - Luz ambiente.
+  - Luz direccional con verificación de sombras.
+- Environment map (equirectangular) como fondo:
+  - Cargado vía `bmp_texture.py`
+  - Muestreo bilineal para mejorar calidad y reducir pixelación.
+  - Controles de orientación/zoom: `envYaw`, `envPitch`, `envFovScale` en `gl.Renderer`.
+- Exportación a BMP.
 
 ## 🛠️ Requisitos
 
-- Python 3.7+
-- pygame
+- Python 3.10+ (probado con 3.13)
 - numpy
+- pygame
 
-## 📦 Instalación
+## 📦 Instalación rápida
 
-1. Clona el repositorio:
-```bash
-git clone https://github.com/skemono/Raytracer.git
-cd Raytracer
-```
-
-2. Instala las dependencias:
-```bash
-pip install pygame numpy
+```powershell
+python -m venv .venv; .venv\Scripts\Activate.ps1; pip install -U pip; pip install numpy pygame
 ```
 
 ## ▶️ Uso
 
-Ejecuta el script principal para generar la imagen del cerdito:
+Renderizar la escena principal (6 esferas con environment map):
 
-```bash
-python RayTracer.py
+```powershell
+.venv\Scripts\python.exe .\RayTracer.py
 ```
+
+El resultado se guarda como `semucSpheresEnv.bmp` en la raíz del proyecto.
+
+Actualmente define:
+
+- 2 esferas opacas (rojo, verde)
+- 2 reflectantes (espejo, metal pulido)
+- 2 transparentes (vidrio, agua)

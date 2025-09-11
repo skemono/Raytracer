@@ -1,14 +1,14 @@
-"""Script principal que construye una escena y la renderiza a BMP."""
+"""Script principal: escena de 6 esferas (opacas, reflectantes y transparentes)
+con un environment map de fondo.
+"""
 
 import pygame
 from gl import *
-# Nota: existe una versión PEP8 en bmp_writer.py, pero para compatibilidad
-# con el proyecto actual usamos el nombre original:
 from BMP_Writer import GenerateBMP
 from figures import *
 from lights import *
 from material import Material
-import math
+from bmp_texture import BMPTexture
 
 width = 512
 height = 512
@@ -19,62 +19,51 @@ screen = pygame.display.set_mode((width, height), pygame.HIDDEN)
 
 rend = Renderer(screen)
 
-# Definir materiales en tonos necesarios (difusos)
-pig_pink = Material(diffuse=[0.96, 0.73, 0.73])
-pig_dark_pink = Material(diffuse=[0.90, 0.45, 0.55])
-black = Material(diffuse=[0.05, 0.05, 0.05])
-white = Material(diffuse=[0.95, 0.95, 0.95])
-dark_shadow = Material(diffuse=[0.3, 0.3, 0.3])
+# Cargar environment map si existe en el proyecto
+try:
+    rend.environmentMap = BMPTexture("semuc_enviroment.bmp")
+    print("Environment map cargado: semuc_enviroment.bmp")
+except Exception as e:
+    print("No se pudo cargar el environment map, se usará color de fondo.")
 
-# cuerpo
-rend.scene.append(Sphere(position=[0.0, -0.8, -9.0], radius=1.3, material=pig_pink))
+# Materiales
+opaque_red = Material(diffuse=[0.9, 0.2, 0.2], specular=[1, 1, 1], shininess=32)
+opaque_green = Material(diffuse=[0.2, 0.8, 0.2], specular=[1, 1, 1], shininess=16)
 
-# cabeza
-rend.scene.append(Sphere(position=[0.0, 0.6, -7.8], radius=1.1, material=pig_pink))
+mirror = Material(diffuse=[0.0, 0.0, 0.0], reflectivity=1.0, specular=[1, 1, 1], shininess=128)
+polished_metal = Material(diffuse=[0.8, 0.6, 0.2], reflectivity=0.6, specular=[1, 1, 1], shininess=96)
 
-# hociquin
-rend.scene.append(Sphere(position=[0.0, 0.7, -6.9], radius=0.4, material=pig_dark_pink))
+glass = Material(diffuse=[0.9, 0.9, 1.0], transparency=0.9, ior=1.52, specular=[1, 1, 1], shininess=64)
+water = Material(diffuse=[0.9, 0.9, 1.0], transparency=0.7, ior=1.33, specular=[1, 1, 1], shininess=32)
 
-# fosas nasales
-rend.scene.append(Sphere(position=[-0.12, 0.75, -6.6], radius=0.08, material=black))
-rend.scene.append(Sphere(position=[0.12, 0.75, -6.6], radius=0.08, material=black))
+# Esferas: 6 visibles, 3 arriba y 3 abajo
+z_front = -8.0
+z_back = -10.0
+row_y_top = 0.6
+row_y_bottom = -1.0
+radius = 0.8
 
-# ojos 
-rend.scene.append(Sphere(position=[-0.4, 1.1, -7], radius=0.18, material=black))
-rend.scene.append(Sphere(position=[0.4, 1.1, -7], radius=0.18, material=black))
+# Arriba (izq->der): opaca roja, espejo, transparente (vidrio)
+rend.scene.append(Sphere(position=[-2.0, row_y_top, z_front], radius=radius, material=opaque_red))
+rend.scene.append(Sphere(position=[0.0, row_y_top, z_front], radius=radius, material=mirror))
+rend.scene.append(Sphere(position=[2.0, row_y_top, z_front], radius=radius, material=glass))
 
-# ojos (brillos)
-rend.scene.append(Sphere(position=[-0.35, 1.15, -6.9], radius=0.08, material=white))
-rend.scene.append(Sphere(position=[0.45, 1.15, -6.9], radius=0.08, material=white))
-
-# orejas
-rend.scene.append(Sphere(position=[-0.7, 1.5, -7.9], radius=0.35, material=pig_pink))
-rend.scene.append(Sphere(position=[0.7, 1.5, -7.9], radius=0.35, material=pig_pink))
-
-# patas frontales
-rend.scene.append(Sphere(position=[-0.7, -2.0, -8.3], radius=0.28, material=pig_pink))  # Front left
-rend.scene.append(Sphere(position=[0.7, -2.0, -8.3], radius=0.28, material=pig_pink))   # Front right
-
-# patas
-rend.scene.append(Sphere(position=[-0.7, -2.0, -9.7], radius=0.28, material=pig_pink))  # Back left
-rend.scene.append(Sphere(position=[0.7, -2.0, -9.7], radius=0.28, material=pig_pink))   # Back right
-
-# manitas
-rend.scene.append(Sphere(position=[-1.3, -0.1, -9.7], radius=0.12, material=pig_pink))
-rend.scene.append(Sphere(position=[1.3, -0.1, -9.7], radius=0.12, material=pig_pink))
+# Abajo (izq->der): opaca verde, metal pulido, transparente (agua)
+rend.scene.append(Sphere(position=[-2.0, row_y_bottom, z_back], radius=radius, material=opaque_green))
+rend.scene.append(Sphere(position=[0.0, row_y_bottom, z_back], radius=radius, material=polished_metal))
+rend.scene.append(Sphere(position=[2.0, row_y_bottom, z_back], radius=radius, material=water))
 
 # Iluminación
 rend.lights.append(AmbientLight(intensity=0.2))
-rend.lights.append(DirectionalLight(direction=[-1, -1, -1], intensity=0.8))
+rend.lights.append(DirectionalLight(direction=[-1, -1, -1], intensity=0.9))
 
 # Render de la escena
 rend.glRender()
 
 # Guardar la imagen a disco en formato BMP
-GenerateBMP("pig_raytracer.bmp", width, height, 3, rend.frameBuffer)
-
-print("Imagen guardada como 'pig_raytracer.bmp'")
+output = "semucSpheresEnv.bmp"
+GenerateBMP(output, width, height, 3, rend.frameBuffer)
+print(f"Imagen guardada como '{output}'")
 
 if __name__ == "__main__":
-    # Cerrar pygame al terminar (no se muestra ventana)
     pygame.quit()

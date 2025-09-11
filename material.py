@@ -1,20 +1,27 @@
-"""Materiales y sombreado (modelo de Phong simplificado)."""
+"""Materiales y sombreado (Phong) con soporte de reflexión y refracción."""
 
 import numpy as np
+from refractionFunctions import refractVector, fresnel, totalInternalReflection
 
 class Material(object):
-    """Material con componentes difusa, especular y ambiente."""
-    def __init__(self, diffuse=[1,1,1], specular=[1,1,1], shininess=32, ambient=None):
+    """Material con componentes difusa, especular y ambiente;
+    admite reflexión y refracción simples.
+    """
+    def __init__(self, diffuse=[1,1,1], specular=[1,1,1], shininess=32, ambient=None,
+                 reflectivity: float = 0.0, transparency: float = 0.0, ior: float = 1.0):
         self.diffuse = diffuse  # Color difuso (RGB entre 0-1)
         self.specular = specular  # Color especular
         self.shininess = shininess  # Brillo especular
         self.ambient = ambient if ambient else diffuse  # Color ambiente
+        self.reflectivity = max(0.0, min(1.0, reflectivity))
+        self.transparency = max(0.0, min(1.0, transparency))
+        self.ior = ior  # Índice de refracción (1.0 = aire)
     
-    def GetSurfaceColor(self, intercept, renderer):
+    def GetSurfaceColor(self, intercept, renderer, depth=0):
         # Modelo de reflexión Phong:
         # FinalColor = Ambient + Diffuse + Specular
         
-        finalColor = [0, 0, 0]
+        finalColor = [0.0, 0.0, 0.0]
         
         # Componente ambiente
         for light in renderer.lights:
@@ -53,8 +60,62 @@ class Material(object):
                         specularIntensity = max(0, np.dot(viewDir, reflectDir)) ** self.shininess
                         specularColor = [self.specular[i] * lightColor[i] * specularIntensity for i in range(3)]
                         finalColor = [finalColor[i] + specularColor[i] for i in range(3)]
-        
-    # Limitar cada canal a [0,1]
+
+        # Reflexión / Refracción (recursivo)
+        if depth < renderer.maxDepth and (self.reflectivity > 0 or self.transparency > 0):
+            n = np.array(intercept.normal, dtype=float)
+            i = np.array(intercept.rayDirection, dtype=float)
+            i = i / (np.linalg.norm(i) + 1e-12)
+            n = n / (np.linalg.norm(n) + 1e-12)
+
+            # Reflexión
+            reflectedColor = [0.0, 0.0, 0.0]
+            if self.reflectivity > 0:
+                r = i - 2 * np.dot(i, n) * n
+                r = r / (np.linalg.norm(r) + 1e-12)
+                offset = 0.001
+                originR = intercept.point + n * offset if np.dot(r, n) > 0 else intercept.point - n * offset
+                reflectedColor = renderer.glRayColor(originR, r, depth + 1)
+
+            # Refracción
+            refractedColor = [0.0, 0.0, 0.0]
+            if self.transparency > 0:
+                n1 = 1.0
+                n2 = self.ior
+                try:
+                    tir = totalInternalReflection(n, i, n1, n2)
+                except Exception:
+                    tir = False
+                if tir:
+                    refractedColor = reflectedColor
+                else:
+                    try:
+                        t = refractVector(n, i, n1, n2)
+                        offset = 0.001
+                        originT = intercept.point - n * offset if np.dot(t, n) < 0 else intercept.point + n * offset
+                        refractedColor = renderer.glRayColor(originT, t, depth + 1)
+                    except Exception:
+                        refractedColor = reflectedColor
+
+                # Fresnel para mezclar (si es posible)
+                try:
+                    Kr, Kt = fresnel(n, i, n1, n2)
+                except Exception:
+                    Kr, Kt = 0.5, 0.5
+            else:
+                Kr, Kt = 0.0, 1.0
+
+            # Mezcla final (ponderación simple)
+            localFactor = max(0.0, 1.0 - self.reflectivity - self.transparency)
+            color = [0.0, 0.0, 0.0]
+            for c in range(3):
+                color[c] = (
+                    localFactor * finalColor[c]
+                    + self.reflectivity * reflectedColor[c]
+                    + self.transparency * (Kr * reflectedColor[c] + Kt * refractedColor[c])
+                )
+            finalColor = color
+
+        # Limitar cada canal a [0,1]
         finalColor = [min(1, max(0, finalColor[i])) for i in range(3)]
-        
         return finalColor

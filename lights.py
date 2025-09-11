@@ -23,18 +23,20 @@ class DirectionalLight(Light):
     """Luz direccional con una dirección infinita (como el sol)."""
     def __init__(self, color = [1, 1, 1], intensity = 1.0, direction = [0,  -1, 0]):
         super().__init__(color, intensity, "Directional")
-        self.direction = direction / np.linalg.norm(direction)
+        # Asegurar vector numpy normalizado
+        d = np.array(direction, dtype=float)
+        norm = np.linalg.norm(d)
+        self.direction = (d / norm) if norm != 0 else d
 
     def GetLightColor(self, intercept = None):
         """Color de luz en el punto, considerando la normal (difuso Lambert)."""
         lightColor = super().GetLightColor()
 
-        if intercept:
+        if intercept is not None:
             # SurfaceIntensity = NORMAL · (-DIRECCION DE LA LUZ)
-            dir = [(i * -1) for i in self.direction]
-            surfaceIntensity = np.dot(intercept.normal, dir)
-            surfaceIntensity = max(0, min(1, surfaceIntensity))
+            dir_vec = -self.direction
+            surfaceIntensity = float(np.dot(intercept.normal, dir_vec))
+            surfaceIntensity = max(0.0, min(1.0, surfaceIntensity))
             lightColor = [(i * surfaceIntensity) for i in lightColor]
-
 
         return lightColor
