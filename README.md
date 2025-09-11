@@ -6,7 +6,7 @@ Un raytracer simple en Python que renderiza escenas 3D con materiales opacos, re
 
 - Escena de 6 esferas con environment map (actual):
 
-  ![Seis Esferas](six_spheres_env.bmp)
+  ![Seis Esferas](semucSpheresEnv.bmp)
 
 
 ## 🚀 Características
