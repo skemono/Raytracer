@@ -40,3 +40,27 @@ class DirectionalLight(Light):
             lightColor = [(i * surfaceIntensity) for i in lightColor]
 
         return lightColor
+
+
+class PointLight(Light):
+    """Luz puntual con posición y atenuación simple."""
+    def __init__(self, position, color = [1,1,1], intensity = 1.0, attenuation = 0.02):
+        super().__init__(color, intensity, "Point")
+        self.position = np.array(position, dtype=float)
+        self.attenuation = attenuation  # factor cuadrático simple
+
+    def GetLightVector(self, point):
+        """Vector (no normalizado) desde el punto hacia la luz."""
+        return self.position - np.array(point, dtype=float)
+
+    def GetLightColor(self, intercept = None):
+        if intercept is None:
+            return super().GetLightColor()
+        vec = self.GetLightVector(intercept.point)
+        dist = np.linalg.norm(vec) + 1e-12
+        L = vec / dist
+        # Atenuación simple 1 / (1 + k d^2)
+        att = 1.0 / (1.0 + self.attenuation * dist * dist)
+        base = super().GetLightColor()
+        lambert = max(0.0, float(np.dot(intercept.normal, L)))
+        return [c * lambert * att for c in base]

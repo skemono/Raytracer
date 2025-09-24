@@ -69,3 +69,141 @@ class Sphere(Shape):
         
         # Ambas están detrás del origen
         return None  # Cambié de (False, None) a None
+
+
+class Plane(Shape):
+    """Plano infinito definido por un punto (position) y una normal (normal)."""
+    def __init__(self, position, normal, material):
+        super().__init__(position, material)
+        n = np.array(normal, dtype=float)
+        ln = np.linalg.norm(n)
+        self.normal = n / ln if ln != 0 else n
+        self.type = "Plane"
+
+    def ray_intersect(self, orig, dir):
+        orig = np.array(orig, dtype=float)
+        dir = np.array(dir, dtype=float)
+        denom = np.dot(self.normal, dir)
+        if abs(denom) < 1e-6:
+            return None
+        t = np.dot(self.normal, np.array(self.position) - orig) / denom
+        if t < 1e-4:
+            return None
+        hit_point = orig + dir * t
+        return Intercept(hit_point, self.normal, t, dir, self)
+
+
+class Disk(Shape):
+    """Disco finito: plano con radio."""
+    def __init__(self, position, normal, radius, material):
+        super().__init__(position, material)
+        n = np.array(normal, dtype=float)
+        ln = np.linalg.norm(n)
+        self.normal = n / ln if ln != 0 else n
+        self.radius = radius
+        self.type = "Disk"
+
+    def ray_intersect(self, orig, dir):
+        orig = np.array(orig, dtype=float)
+        dir = np.array(dir, dtype=float)
+        denom = np.dot(self.normal, dir)
+        if abs(denom) < 1e-6:
+            return None
+        t = np.dot(self.normal, np.array(self.position) - orig) / denom
+        if t < 1e-4:
+            return None
+        hit_point = orig + dir * t
+        # Comprobar dentro del radio
+        if np.linalg.norm(hit_point - np.array(self.position)) > self.radius:
+            return None
+        return Intercept(hit_point, self.normal, t, dir, self)
+
+
+class Triangle(Shape):
+    """Triángulo definido por 3 vértices (v0,v1,v2). Intersección Möller-Trumbore."""
+    def __init__(self, v0, v1, v2, material):
+        # position = centro (promedio) solo informativo
+        centroid = [(v0[i] + v1[i] + v2[i]) / 3.0 for i in range(3)]
+        super().__init__(centroid, material)
+        self.v0 = np.array(v0, dtype=float)
+        self.v1 = np.array(v1, dtype=float)
+        self.v2 = np.array(v2, dtype=float)
+        # Normal (no normalizada -> luego normalizo)
+        n = np.cross(self.v1 - self.v0, self.v2 - self.v0)
+        ln = np.linalg.norm(n)
+        self.normal = n / ln if ln != 0 else n
+        self.type = "Triangle"
+
+    def ray_intersect(self, orig, dir):
+        orig = np.array(orig, dtype=float)
+        dir = np.array(dir, dtype=float)
+        # Möller-Trumbore
+        EPS = 1e-6
+        edge1 = self.v1 - self.v0
+        edge2 = self.v2 - self.v0
+        h = np.cross(dir, edge2)
+        a = np.dot(edge1, h)
+        if -EPS < a < EPS:
+            return None
+        f = 1.0 / a
+        s = orig - self.v0
+        u = f * np.dot(s, h)
+        if u < 0.0 or u > 1.0:
+            return None
+        q = np.cross(s, edge1)
+        v = f * np.dot(dir, q)
+        if v < 0.0 or u + v > 1.0:
+            return None
+        t = f * np.dot(edge2, q)
+        if t > EPS:
+            hit_point = orig + dir * t
+            return Intercept(hit_point, self.normal, t, dir, self)
+        return None
+
+
+class Cube(Shape):
+    """Cubo axis-aligned (AABB) definido por centro (position) y tamaño (edge)."""
+    def __init__(self, position, edge, material):
+        super().__init__(position, material)
+        self.edge = edge
+        self.type = "Cube"
+        e = edge / 2.0
+        self.min = np.array([position[0]-e, position[1]-e, position[2]-e], dtype=float)
+        self.max = np.array([position[0]+e, position[1]+e, position[2]+e], dtype=float)
+
+    def ray_intersect(self, orig, dir):
+        orig = np.array(orig, dtype=float)
+        dir = np.array(dir, dtype=float)
+        # Evitar división por cero usando números grandes
+        inv_dir = 1.0 / np.where(np.abs(dir) < 1e-8, 1e-8, dir)
+        t1 = (self.min - orig) * inv_dir
+        t2 = (self.max - orig) * inv_dir
+        tmin = np.maximum.reduce(np.minimum(t1, t2))
+        tmax = np.minimum.reduce(np.maximum(t1, t2))
+        if tmax < 0 or tmin > tmax:
+            return None
+        t = tmin if tmin > 1e-4 else tmax
+        if t < 1e-4:
+            return None
+        hit_point = orig + dir * t
+        # Calcular normal de la cara golpeada
+        normal = np.zeros(3)
+        # Comparar hit_point cercano a límites
+        EPS = 1e-4
+        for axis in range(3):
+            if abs(hit_point[axis] - self.min[axis]) < EPS:
+                normal[axis] = -1
+                break
+            if abs(hit_point[axis] - self.max[axis]) < EPS:
+                normal[axis] = 1
+                break
+        ln = np.linalg.norm(normal)
+        if ln == 0:
+            # fallback: usar gradiente (distancias a centros)
+            extents = (self.max - self.min) / 2.0
+            center = (self.max + self.min) / 2.0
+            local = (hit_point - center) / (extents + 1e-8)
+            axis = np.argmax(np.abs(local))
+            normal = np.zeros(3)
+            normal[axis] = np.sign(local[axis])
+        return Intercept(hit_point, normal, t, dir, self)
