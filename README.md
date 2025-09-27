@@ -1,16 +1,13 @@
-# Raytracer en Python (entregable con environment map + materiales)
+# Raytracer en Python (Tracing + Materiales + Geometría Extendida)
 
-Un raytracer simple en Python que renderiza escenas 3D con materiales opacos, reflectantes y transparentes. Ahora también soporta una escena de habitación cerrada (sin environment map) con múltiples tipos de geometría.
+Un raytracer educativo en Python que renderiza escenas 3D con materiales opacos, reflectantes, transparentes y refractivos. Ahora incluye nuevas figuras no simétricas (elipsoide, caja orientada) y una escena de demostración que combina reflexión, refracción y distintas normales.
 
 ## 🖼️ Resultados
 
-### Nueva escena: Habitación con figuras variadas
-Habitación minimalista (5 planos) que contiene:
-- 2 cubos
-- 1 triángulo
-- 1 disco reflectante (espejo)
+### Escena de demostración de características
+Incluye: esfera vidrio, esfera agua, cubo metálico, caja orientada (OBB), elipsoide escalado, triángulo flotante y disco espejo central.
 
-![Habitación Figuras](habitacion_figuras.bmp)
+![Demo Features](features_demo.bmp)
 
 
 ## 🚀 Características
@@ -19,9 +16,12 @@ Habitación minimalista (5 planos) que contiene:
 - Geometrías soportadas:
   - Sphere (esfera)
   - Plane (plano infinito)
-  - Disk (disco finito en un plano)
-  - Triangle (intersección Möller–Trumbore)
+  - Disk (disco finito)
+  - Triangle (Möller–Trumbore)
   - Cube (AABB axis-aligned)
+  - Ellipsoid (radii independientes – escalado no uniforme)
+  - OrientedBox (OBB con rotación Euler)
+  - Figura compuesta opcional: ChickenLeg (elipsoide + cápsula) para ejemplo de objetos compuestos
 - Materiales (Phong) con:
   - Difuso, especular, ambiente
   - Reflexión (recursiva)
@@ -44,18 +44,11 @@ python -m venv .venv; .venv\Scripts\Activate.ps1; pip install -U pip; pip instal
 
 ## ▶️ Uso
 
-Renderizar la escena de la habitación (figuras variadas sobre disco espejo):
+Renderizar la escena de demostración (features):
 
 ```powershell
 .venv\Scripts\python.exe .\RayTracer.py
 ```
 
-Genera `habitacion_figuras.bmp`.
+Genera `features_demo.bmp`.
 
-Escena de habitación incluye:
-- 5 planos (piso, techo, paredes laterales y fondo)
-- 2 cubos pequeños centrados
-- 1 triángulo suspendido
-- 1 disco grande casi espejo (reflectividad alta)
-
-Nota: Puedes alternar entre usar environment map o un cuarto cerrado según tus pruebas.

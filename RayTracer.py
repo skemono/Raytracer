@@ -1,11 +1,10 @@
-"""Script principal: render de un cuarto minimalista (5 planos) con
-dos cubos, un triángulo y un disco. Iluminación ambiente + direccional.
+"""Script principal: Escena DEMO de características.
 
-Requerimientos de la tarea:
- - Dibujar planos, discos, triángulos y cubos con el RayTracer.
- - Escena: habitación (piso, techo, pared izquierda, derecha, fondo) y dentro
-     dos cubos, un triángulo y un disco.
- - Materiales simples (Phong) reutilizando `Material`.
+Muestra:
+ - Environment map (plato.bmp si existe)
+ - Geometrías: Sphere, Cube (AABB), OrientedBox, Ellipsoid, Triangle, Disk (espejo), Plane (piso)
+ - Materiales con reflexión y transparencia (vidrio/agua)
+ - Diferentes normales y orientaciones (OBB rotada, elipsoide escalado)
 """
 
 import pygame
@@ -25,8 +24,13 @@ screen = pygame.display.set_mode((width, height), pygame.HIDDEN)
 
 rend = Renderer(screen)
 
-# No usamos environment map en esta tarea (cuarto cerrado neutro)
-rend.environmentMap = None
+# Intentar cargar nuevo environment map
+try:
+    rend.environmentMap = BMPTexture("semuc_enviroment.bmp")
+    print("Environment map cargado: semuc_enviroment.bmp")
+except Exception as e:
+    rend.environmentMap = None
+    print("No se pudo cargar semuc_enviroment.bmp, se usará color de fondo.")
 
 # Materiales
 opaque_red = Material(diffuse=[0.9, 0.2, 0.2], specular=[1, 1, 1], shininess=32)
@@ -39,65 +43,58 @@ glass = Material(diffuse=[0.9, 0.9, 1.0], transparency=0.9, ior=1.52, specular=[
 water = Material(diffuse=[0.9, 0.9, 1.0], transparency=0.7, ior=1.33, specular=[1, 1, 1], shininess=32)
 
 # ------------------------------
-# Construcción de la habitación
-# Coordenadas: cámara en (0,0,0) mirando -Z. Ponemos la sala delante.
-# Plano del piso: y = -2
-room_size = 8  # ancho/largo aproximado
-half = room_size / 2
-
-floor_mat = Material(diffuse=[0.6, 0.6, 0.6], specular=[0.2,0.2,0.2], shininess=8)
-wall_mat = Material(diffuse=[0.85, 0.85, 0.85], specular=[0.05,0.05,0.05], shininess=4)
-ceiling_mat = Material(diffuse=[0.9, 0.9, 0.9], specular=[0.1,0.1,0.1], shininess=8)
-
-# Planos (piso, techo, izquierda, derecha, fondo). No añadimos pared frontal para ver interior.
-rend.scene.append(Plane(position=[0, -2, -room_size/2], normal=[0, 1, 0], material=floor_mat))
-rend.scene.append(Plane(position=[0,  4, -room_size/2], normal=[0,-1, 0], material=ceiling_mat))
-rend.scene.append(Plane(position=[-half, 0, -room_size/2], normal=[1, 0, 0], material=wall_mat))
-rend.scene.append(Plane(position=[ half, 0, -room_size/2], normal=[-1,0, 0], material=wall_mat))
-rend.scene.append(Plane(position=[0, 0, -room_size-4], normal=[0,0,1], material=wall_mat))
-
 # ------------------------------
-# Figuras internas (centradas encima de un disco grande reflectante)
-cube_mat1 = Material(diffuse=[0.25, 0.45, 0.95], specular=[1,1,1], shininess=96, reflectivity=0.25)
-cube_mat2 = Material(diffuse=[0.95, 0.45, 0.2], specular=[1,1,1], shininess=64, reflectivity=0.15)
-triangle_mat = Material(diffuse=[0.35, 0.85, 0.55], specular=[1,1,1], shininess=64)
-# Disco espejo casi perfecto
-disk_mat = Material(diffuse=[0.05, 0.05, 0.05], specular=[1,1,1], shininess=256, reflectivity=0.97)
+# Escena de demostración
 
-# Nuevo radio del disco y posición central
-disk_center = [0.0, -1.999, -8.0]
-disk_radius = 3.2
+# Piso (plano) ligeramente gris para recibir reflejos/sombras
+floor_mat = Material(diffuse=[0.6,0.6,0.6], specular=[0.2,0.2,0.2], shininess=16)
+rend.scene.append(Plane(position=[0,-2, -8], normal=[0,1,0], material=floor_mat))
 
-# Altura común de las figuras sobre el disco
-fig_y = -1.2  # un poco por encima del disco
+# Disco espejo en el centro para reflejar objetos
+mirror_disk_mat = Material(diffuse=[0.05,0.05,0.05], specular=[1,1,1], shininess=256, reflectivity=0.95)
+rend.scene.append(Disk(position=[0,-1.999,-8], normal=[0,1,0], radius=2.8, material=mirror_disk_mat))
 
-# Cubos más pequeños
-rend.scene.append(Cube(position=[-0.9, fig_y, -7.6], edge=0.9, material=cube_mat1))
-rend.scene.append(Cube(position=[ 0.9, fig_y, -7.9], edge=0.9, material=cube_mat2))
+# Esfera transparente (vidrio) a la izquierda
+glass = Material(diffuse=[0.9,0.95,1.0], transparency=0.9, ior=1.52, specular=[1,1,1], shininess=96, reflectivity=0.05)
+rend.scene.append(Sphere(position=[-2.2,-1.0,-8.2], radius=0.9, material=glass))
 
-# Triángulo pequeño suspendido al centro
-v0 = [-0.3, fig_y + 0.2, -8.2]
-v1 = [ 0.3, fig_y + 0.25, -8.0]
-v2 = [ 0.0, fig_y + 0.85, -7.8]
-rend.scene.append(Triangle(v0, v1, v2, triangle_mat))
+# Esfera agua para comparar
+water = Material(diffuse=[0.95,0.95,1.0], transparency=0.7, ior=1.33, specular=[1,1,1], shininess=64, reflectivity=0.05)
+rend.scene.append(Sphere(position=[-0.9,-1.05,-9.5], radius=0.6, material=water))
 
-# Disco grande reflectante
-rend.scene.append(Disk(position=disk_center, normal=[0,1,0], radius=disk_radius, material=disk_mat))
+# Cubo metálico pulido
+metal = Material(diffuse=[0.8,0.6,0.25], reflectivity=0.6, specular=[1,1,1], shininess=128)
+rend.scene.append(Cube(position=[1.6,-1.3,-7.2], edge=1.2, material=metal))
 
-# Iluminación: ambiente suave y luz direccional simulando panel
-rend.lights.append(AmbientLight(intensity=0.58))
-# Panel principal (direccional)
-rend.lights.append(DirectionalLight(direction=[-0.45, -1, -0.25], intensity=0.85, color=[1,1,1]))
-# Panel secundario
-rend.lights.append(DirectionalLight(direction=[0.4, -1, -0.6], intensity=0.45, color=[0.95,0.97,1.0]))
-# Punto interno sobre el centro para asegurar luz en caras hacia arriba
-rend.lights.append(PointLight(position=[0, 1.2, -8.0], intensity=2.2, color=[1.0, 0.95, 0.9], attenuation=0.15))
+# Oriented Box (rotada) semirreflectiva
+obb_mat = Material(diffuse=[0.25,0.45,0.9], specular=[1,1,1], shininess=64, reflectivity=0.2)
+rend.scene.append(OrientedBox(position=[0.9,-0.8,-9.2], half_sizes=[0.5,0.9,0.4], rotation=[0.4,0.8,0.2], material=obb_mat))
+
+# Elipsoide aplastado (mostrando escalado no uniforme)
+ellip_mat = Material(diffuse=[0.35,0.85,0.55], specular=[1,1,1], shininess=48)
+rend.scene.append(Ellipsoid(position=[-1.0,0.2,-7.0], radii=[0.8,0.5,1.2], material=ellip_mat))
+
+# Triángulo flotando arriba
+tri_mat = Material(diffuse=[0.9,0.3,0.4], specular=[1,1,1], shininess=64)
+tv0 = [-0.5, 1.0, -8.3]
+tv1 = [ 0.7, 1.2, -8.0]
+tv2 = [ 0.1, 1.6, -7.5]
+rend.scene.append(Triangle(tv0, tv1, tv2, tri_mat))
+
+# Esfera espejo pequeña para mostrar reflejos múltiples
+mirror_small = Material(diffuse=[0,0,0], reflectivity=1.0, specular=[1,1,1], shininess=256)
+rend.scene.append(Sphere(position=[0.3,-1.15,-8.1], radius=0.35, material=mirror_small))
+
+# Iluminación: ambiente + dos direccionales para highlights cruzados
+rend.lights.append(AmbientLight(intensity=0.22))
+rend.lights.append(DirectionalLight(direction=[-0.4,-1,-0.3], intensity=0.85, color=[1,1,1]))
+rend.lights.append(DirectionalLight(direction=[0.45,-0.9,-0.5], intensity=0.55, color=[0.95,0.98,1]))
 
 # Render de la escena
 rend.glRender()
 
 # Guardar la imagen a disco en formato BMP
-output = "habitacion_figuras.bmp"
+output = "features_demo.bmp"
 GenerateBMP(output, width, height, 3, rend.frameBuffer)
 print(f"Imagen guardada como '{output}'")
 

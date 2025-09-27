@@ -207,3 +207,190 @@ class Cube(Shape):
             normal = np.zeros(3)
             normal[axis] = np.sign(local[axis])
         return Intercept(hit_point, normal, t, dir, self)
+
+
+class OrientedBox(Shape):
+    """Caja orientada arbitrariamente (OBB) definida por centro, half_sizes y rotación Euler.
+    Se intersecta transformando el rayo al espacio local (donde es un AABB) y luego regresando.
+    rot = (rx, ry, rz) en radianes.
+    """
+    def __init__(self, position, half_sizes, rotation, material):
+        super().__init__(position, material)
+        self.type = "OrientedBox"
+        self.half = np.array(half_sizes, dtype=float)
+        self.rotation = rotation  # Euler angles
+        # Precompute rotation matrix (R = Rz * Ry * Rx)
+        rx, ry, rz = rotation
+        cx, sx = np.cos(rx), np.sin(rx)
+        cy, sy = np.cos(ry), np.sin(ry)
+        cz, sz = np.cos(rz), np.sin(rz)
+        Rx = np.array([[1,0,0],[0,cx,-sx],[0,sx,cx]])
+        Ry = np.array([[cy,0,sy],[0,1,0],[-sy,0,cy]])
+        Rz = np.array([[cz,-sz,0],[sz,cz,0],[0,0,1]])
+        self.R = Rz @ Ry @ Rx
+        self.RT = self.R.T
+
+    def ray_intersect(self, orig, dir):
+        orig = np.array(orig, dtype=float)
+        dir = np.array(dir, dtype=float)
+        # Transform ray to local space
+        local_orig = self.RT @ (orig - np.array(self.position))
+        local_dir = self.RT @ dir
+        # Intersect with AABB [-half, half]
+        inv_dir = 1.0 / np.where(np.abs(local_dir) < 1e-8, 1e-8, local_dir)
+        t1 = (-self.half - local_orig) * inv_dir
+        t2 = ( self.half - local_orig) * inv_dir
+        tmin = np.maximum.reduce(np.minimum(t1, t2))
+        tmax = np.minimum.reduce(np.maximum(t1, t2))
+        if tmax < 0 or tmin > tmax:
+            return None
+        t = tmin if tmin > 1e-4 else tmax
+        if t < 1e-4:
+            return None
+        # Hit point in local
+        local_hit = local_orig + local_dir * t
+        # Determine normal in local
+        EPS = 1e-4
+        normal_local = np.zeros(3)
+        for axis in range(3):
+            if abs(local_hit[axis] - self.half[axis]) < EPS:
+                normal_local[axis] = 1
+                break
+            if abs(local_hit[axis] + self.half[axis]) < EPS:
+                normal_local[axis] = -1
+                break
+        if np.linalg.norm(normal_local) == 0:
+            # fallback choose dominant axis
+            axis = np.argmax(np.abs(local_hit) / (self.half + 1e-8))
+            normal_local[axis] = np.sign(local_hit[axis])
+        # Transform back
+        world_hit = self.R @ local_hit + np.array(self.position)
+        world_normal = self.R @ normal_local
+        world_normal /= (np.linalg.norm(world_normal) + 1e-12)
+        return Intercept(world_hit, world_normal, t, dir, self)
+
+
+class Ellipsoid(Shape):
+    """Elipsoide definido por centro y radios (rx, ry, rz).
+    Intersección: escalar el espacio para convertir en esfera unitaria.
+    """
+    def __init__(self, position, radii, material):
+        super().__init__(position, material)
+        self.type = "Ellipsoid"
+        self.radii = np.array(radii, dtype=float)
+        self.inv = 1.0 / np.where(self.radii < 1e-8, 1e-8, self.radii)
+
+    def ray_intersect(self, orig, dir):
+        orig = np.array(orig, dtype=float) - np.array(self.position)
+        dir = np.array(dir, dtype=float)
+        # Scale to unit sphere space
+        o = orig * self.inv
+        d = dir * self.inv
+        a = np.dot(d, d)
+        b = 2.0 * np.dot(o, d)
+        c = np.dot(o, o) - 1.0
+        disc = b*b - 4*a*c
+        if disc < 0:
+            return None
+        sqrt_disc = np.sqrt(disc)
+        t0 = (-b - sqrt_disc) / (2*a)
+        t1 = (-b + sqrt_disc) / (2*a)
+        t = None
+        EPS = 1e-4
+        if t0 > EPS:
+            t = t0
+        elif t1 > EPS:
+            t = t1
+        else:
+            return None
+        # Hit point in original space
+        hit_point = (orig + dir * t) + np.array(self.position)
+        # Normal: gradiente de (x/rx)^2 + ... = 1 => (2x/rx^2, 2y/ry^2, 2z/rz^2)
+        local = hit_point - np.array(self.position)
+        normal = local * (self.inv * self.inv)
+        normal /= (np.linalg.norm(normal) + 1e-12)
+        return Intercept(hit_point, normal, t, dir, self)
+
+
+class ChickenLeg(Shape):
+    """Figura compuesta 'pierna de pollo':
+    - 'Carne': elipsoide grande.
+    - 'Hueso': dos esferas pequeñas unidas por un cilindro aproximado (usamos cápsula simplificada).
+    Intersección: probamos cada sub-parte y devolvemos la más cercana.
+    """
+    def __init__(self, position, material_meat, material_bone=None,
+                 meat_radii=(1.0,0.8,1.2), bone_radius=0.25, bone_length=1.4):
+        super().__init__(position, material_meat)
+        self.type = "ChickenLeg"
+        self.material_meat = material_meat
+        self.material_bone = material_bone or material_meat
+        self.meat = Ellipsoid(position, meat_radii, material_meat)
+        # Model bone as a capsule along +X starting partially embedded
+        self.bone_center_a = np.array(position) + np.array([meat_radii[0]*0.4, 0, 0])
+        self.bone_center_b = self.bone_center_a + np.array([bone_length, 0, 0])
+        self.bone_radius = bone_radius
+
+    def _ray_capsule(self, orig, dir, a, b, radius):
+        # Capsule = segment extruded sphere radius
+        # Algorithm: project to segment, solve quadratic vs infinite cylinder, clamp.
+        pa = a; pb = b
+        ba = pb - pa
+        oa = orig - pa
+        baba = np.dot(ba, ba)
+        bard = np.dot(ba, dir)
+        baoa = np.dot(ba, oa)
+        r2 = radius * radius
+        # Components for quadratic (derived from distance to segment)
+        a_coef = baba - bard * bard
+        b_coef = baba * np.dot(oa, dir) - baoa * bard
+        c_coef = baba * np.dot(oa, oa) - baoa * baoa - r2 * baba
+        h = b_coef * b_coef - a_coef * c_coef
+        if h >= 0.0:
+            h = np.sqrt(h)
+            t = (-b_coef - h) / (a_coef + 1e-12)
+            # Check if within segment
+            y = baoa + t * bard
+            if 0.0 <= y <= baba and t > 1e-4:
+                hit_point = orig + dir * t
+                # Normal: compute closest point on segment then vector
+                cp = pa + ba * (y / baba)
+                normal = hit_point - cp
+                normal /= (np.linalg.norm(normal) + 1e-12)
+                return t, hit_point, normal
+            # Else caps (spheres)
+            for center in (pa, pb):
+                oc = orig - center
+                b_ = np.dot(oc, dir)
+                c_ = np.dot(oc, oc) - r2
+                disc = b_*b_ - c_
+                if disc >= 0:
+                    s = -b_ - np.sqrt(disc)
+                    if s > 1e-4:
+                        hp = orig + dir * s
+                        n = (hp - center) / radius
+                        return s, hp, n
+        return None
+
+    def ray_intersect(self, orig, dir):
+        # Try meat (ellipsoid) and bone (capsule). Return closest.
+        orig = np.array(orig, dtype=float)
+        dir = np.array(dir, dtype=float)
+        best = None
+        # Meat
+        m_hit = self.meat.ray_intersect(orig, dir)
+        if m_hit is not None:
+            best = (m_hit.distance, m_hit.point, m_hit.normal, self.material_meat)
+        # Bone capsule
+        cap = self._ray_capsule(orig, dir, self.bone_center_a, self.bone_center_b, self.bone_radius)
+        if cap is not None:
+            dist, pt, n = cap
+            if best is None or dist < best[0]:
+                best = (dist, pt, n, self.material_bone)
+        if best is None:
+            return None
+        # Build intercept; we set material according to sub-part
+        intercept = Intercept(best[1], best[2], best[0], dir, self)
+        # Override object material temporarily for shading
+        self.material = best[3]
+        return intercept
+    
