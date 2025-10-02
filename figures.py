@@ -1,6 +1,12 @@
 """Figuras geométricas del raytracer (actualmente: esfera)."""
 
 import numpy as np
+
+# Grados a radianes (uno o tres valores)
+def deg(ax, ay=None, az=None):
+        if ay is None and az is None:
+                return (np.radians(ax), 0.0, 0.0)
+        return (np.radians(ax), np.radians(ay or 0.0), np.radians(az or 0.0))
 from intercept import Intercept
 
 class Shape(object):
@@ -271,21 +277,37 @@ class OrientedBox(Shape):
 
 
 class Ellipsoid(Shape):
-    """Elipsoide definido por centro y radios (rx, ry, rz).
-    Intersección: escalar el espacio para convertir en esfera unitaria.
-    """
-    def __init__(self, position, radii, material):
+    """Elipsoide (radii) con rotación Euler opcional."""
+    def __init__(self, position, radii, material, rotation=None):
         super().__init__(position, material)
         self.type = "Ellipsoid"
         self.radii = np.array(radii, dtype=float)
         self.inv = 1.0 / np.where(self.radii < 1e-8, 1e-8, self.radii)
+        if rotation is None:
+            self.rotation = (0.0,0.0,0.0)
+            self.R = np.eye(3)
+            self.RT = self.R
+        else:
+            self.rotation = rotation
+            rx, ry, rz = rotation
+            cx, sx = np.cos(rx), np.sin(rx)
+            cy, sy = np.cos(ry), np.sin(ry)
+            cz, sz = np.cos(rz), np.sin(rz)
+            Rx = np.array([[1,0,0],[0,cx,-sx],[0,sx,cx]])
+            Ry = np.array([[cy,0,sy],[0,1,0],[-sy,0,cy]])
+            Rz = np.array([[cz,-sz,0],[sz,cz,0],[0,0,1]])
+            self.R = Rz @ Ry @ Rx
+            self.RT = self.R.T
 
     def ray_intersect(self, orig, dir):
-        orig = np.array(orig, dtype=float) - np.array(self.position)
+        orig = np.array(orig, dtype=float)
         dir = np.array(dir, dtype=float)
-        # Scale to unit sphere space
-        o = orig * self.inv
-        d = dir * self.inv
+        # Transformar a espacio local rotado
+        local_orig = self.RT @ (orig - np.array(self.position))
+        local_dir = self.RT @ dir
+        # Escalar a esfera unitaria
+        o = local_orig * self.inv
+        d = local_dir * self.inv
         a = np.dot(d, d)
         b = 2.0 * np.dot(o, d)
         c = np.dot(o, o) - 1.0
@@ -295,21 +317,23 @@ class Ellipsoid(Shape):
         sqrt_disc = np.sqrt(disc)
         t0 = (-b - sqrt_disc) / (2*a)
         t1 = (-b + sqrt_disc) / (2*a)
-        t = None
         EPS = 1e-4
-        if t0 > EPS:
-            t = t0
-        elif t1 > EPS:
-            t = t1
-        else:
+        t = t0 if t0 > EPS else (t1 if t1 > EPS else None)
+        if t is None:
             return None
-        # Hit point in original space
-        hit_point = (orig + dir * t) + np.array(self.position)
-        # Normal: gradiente de (x/rx)^2 + ... = 1 => (2x/rx^2, 2y/ry^2, 2z/rz^2)
-        local = hit_point - np.array(self.position)
-        normal = local * (self.inv * self.inv)
-        normal /= (np.linalg.norm(normal) + 1e-12)
-        return Intercept(hit_point, normal, t, dir, self)
+        # Punto de impacto en espacio local rotado
+        local_hit = local_orig + local_dir * t
+        # Normal local (derivada implícita)
+        local_normal = (local_hit * (self.inv * self.inv))
+        ln = np.linalg.norm(local_normal)
+        if ln == 0:
+            return None
+        local_normal /= ln
+        # Volver a espacio mundo
+        world_hit = self.R @ local_hit + np.array(self.position)
+        world_normal = self.R @ local_normal
+        world_normal /= (np.linalg.norm(world_normal) + 1e-12)
+        return Intercept(world_hit, world_normal, t, dir, self)
 
 
 class ChickenLeg(Shape):
@@ -393,4 +417,99 @@ class ChickenLeg(Shape):
         # Override object material temporarily for shading
         self.material = best[3]
         return intercept
+
+
+class Cylinder(Shape):
+    """Cilindro con rotación Euler opcional."""
+    def __init__(self, position, radius, height, material, rotation=None):
+        super().__init__(position, material)
+        self.type = "Cylinder"
+        self.radius = float(radius)
+        self.height = float(height)
+        self.half_h = self.height * 0.5
+        self.radius2 = self.radius * self.radius
+        if rotation is None:
+            self.rotation = (0.0, 0.0, 0.0)
+            self.R = np.eye(3)
+            self.RT = self.R
+        else:
+            self.rotation = rotation
+            rx, ry, rz = rotation
+            cx, sx = np.cos(rx), np.sin(rx)
+            cy, sy = np.cos(ry), np.sin(ry)
+            cz, sz = np.cos(rz), np.sin(rz)
+            Rx = np.array([[1,0,0],[0,cx,-sx],[0,sx,cx]])
+            Ry = np.array([[cy,0,sy],[0,1,0],[-sy,0,cy]])
+            Rz = np.array([[cz,-sz,0],[sz,cz,0],[0,0,1]])
+            # Orden consistente con OrientedBox para uniformidad
+            self.R = Rz @ Ry @ Rx
+            self.RT = self.R.T
+
+    def ray_intersect(self, orig, dir):
+        orig = np.array(orig, dtype=float)
+        dir = np.array(dir, dtype=float)
+    # Transformar a espacio local
+        local_orig = self.RT @ (orig - np.array(self.position))
+        local_dir = self.RT @ dir
+        dx, dy, dz = local_dir
+        ox, oy, oz = local_orig
+    # Lateral
+        a = dx*dx + dz*dz
+        t_side = None
+        normal_side_local = None
+        if a > 1e-12:
+            b = 2*ox*dx + 2*oz*dz
+            c = ox*ox + oz*oz - self.radius2
+            disc = b*b - 4*a*c
+            if disc >= 0:
+                sqrt_disc = np.sqrt(disc)
+                t0 = (-b - sqrt_disc) / (2*a)
+                t1 = (-b + sqrt_disc) / (2*a)
+                for t_candidate in [t0, t1]:
+                    if t_candidate > 1e-4:
+                        y_hit = oy + t_candidate*dy
+                        if -self.half_h - 1e-5 <= y_hit <= self.half_h + 1e-5:
+                            if t_side is None or t_candidate < t_side:
+                                t_side = t_candidate
+                if t_side is not None:
+                    hit_local = local_orig + local_dir * t_side
+                    n = np.array([hit_local[0], 0.0, hit_local[2]])
+                    ln = np.linalg.norm(n)
+                    if ln > 0:
+                        normal_side_local = n / ln
+        # Tapas
+        t_caps = []
+        if abs(dy) > 1e-12:
+            # Superior (y=+half_h)
+            t_top = (self.half_h - oy) / dy
+            if t_top > 1e-4:
+                xh = ox + t_top*dx
+                zh = oz + t_top*dz
+                if xh*xh + zh*zh <= self.radius2 + 1e-6:
+                    t_caps.append((t_top, np.array([0,1,0], dtype=float)))
+            # Inferior (y=-half_h)
+            t_bottom = (-self.half_h - oy) / dy
+            if t_bottom > 1e-4:
+                xh = ox + t_bottom*dx
+                zh = oz + t_bottom*dz
+                if xh*xh + zh*zh <= self.radius2 + 1e-6:
+                    t_caps.append((t_bottom, np.array([0,-1,0], dtype=float)))
+        # Seleccionar intersección
+        best_t = None
+        best_normal_local = None
+        if t_side is not None:
+            best_t = t_side
+            best_normal_local = normal_side_local
+        for t_cap, n_cap in t_caps:
+            if (best_t is None or t_cap < best_t) and t_cap > 1e-4:
+                best_t = t_cap
+                best_normal_local = n_cap
+        if best_t is None:
+            return None
+        local_hit = local_orig + local_dir * best_t
+        # Transformar a mundo
+        world_hit = self.R @ local_hit + np.array(self.position)
+        world_normal = self.R @ best_normal_local
+        world_normal /= (np.linalg.norm(world_normal) + 1e-12)
+        return Intercept(world_hit, world_normal, best_t, dir, self)
     
