@@ -4,11 +4,12 @@ import numpy as np
 from refractionFunctions import refractVector, fresnel, totalInternalReflection
 
 class Material(object):
-    """Material con componentes difusa, especular y ambiente;
-    admite reflexión y refracción simples.
+    """Material con componentes difusa, especular y ambiente; admite textura difusa opcional
+    y reflexión/refracción simples.
     """
     def __init__(self, diffuse=[1,1,1], specular=[1,1,1], shininess=32, ambient=None,
-                 reflectivity: float = 0.0, transparency: float = 0.0, ior: float = 1.0):
+                 reflectivity: float = 0.0, transparency: float = 0.0, ior: float = 1.0,
+                 diffuseTexture=None):
         self.diffuse = diffuse  # Color difuso (RGB entre 0-1)
         self.specular = specular  # Color especular
         self.shininess = shininess  # Brillo especular
@@ -16,6 +17,8 @@ class Material(object):
         self.reflectivity = max(0.0, min(1.0, reflectivity))
         self.transparency = max(0.0, min(1.0, transparency))
         self.ior = ior  # Índice de refracción (1.0 = aire)
+        # Textura difusa opcional (por ejemplo, instancia de BMPTexture)
+        self.diffuseTexture = diffuseTexture
     
     def GetSurfaceColor(self, intercept, renderer, depth=0):
         # Modelo de reflexión Phong:
@@ -23,10 +26,20 @@ class Material(object):
         
         finalColor = [0.0, 0.0, 0.0]
         
+        # Determinar color base de superficie (textura si existe y hay UV)
+        baseColor = self.diffuse
+        if self.diffuseTexture is not None and getattr(intercept, 'uv', None) is not None:
+            try:
+                u, v = intercept.uv
+                baseColor = self.diffuseTexture.getColor(float(u), float(v))
+            except Exception:
+                baseColor = self.diffuse
+
         # Componente ambiente
         for light in renderer.lights:
             if light.type == "Ambient":
-                ambientColor = [self.ambient[i] * light.GetLightColor()[i] for i in range(3)]
+                ambientBase = self.ambient if self.diffuseTexture is None else baseColor
+                ambientColor = [ambientBase[i] * light.GetLightColor()[i] for i in range(3)]
                 finalColor = [finalColor[i] + ambientColor[i] for i in range(3)]
         
     # Componentes difusa y especular
@@ -44,7 +57,7 @@ class Material(object):
                     lightColor = light.GetLightColor(intercept)
                     
                     # Componente difusa
-                    diffuseColor = [self.diffuse[i] * lightColor[i] for i in range(3)]
+                    diffuseColor = [baseColor[i] * lightColor[i] for i in range(3)]
                     finalColor = [finalColor[i] + diffuseColor[i] for i in range(3)]
                     
                     # Componente especular (Phong)

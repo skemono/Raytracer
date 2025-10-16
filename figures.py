@@ -65,13 +65,20 @@ class Sphere(Shape):
             hit_point = orig + dir * near_distance
             normal = (hit_point - np.array(self.position)) / self.radius
             # Devolver Intercept con toda la info
-            return Intercept(hit_point, normal, near_distance, dir, self)
+            # UV esféricas: u = atan2(z,x)/(2pi)+0.5, v = asin(y/r)/pi + 0.5
+            local = hit_point - np.array(self.position)
+            u = (np.arctan2(local[2], local[0]) / (2*np.pi)) + 0.5
+            v = (np.arcsin(np.clip(local[1] / self.radius, -1.0, 1.0)) / np.pi) + 0.5
+            return Intercept(hit_point, normal, near_distance, dir, self, uv=(float(u), float(v)))
     
         if far_distance > epsilon:
             # Lo mismo para la intersección lejana
             hit_point = orig + dir * far_distance
             normal = (hit_point - np.array(self.position)) / self.radius
-            return Intercept(hit_point, normal, far_distance, dir, self)
+            local = hit_point - np.array(self.position)
+            u = (np.arctan2(local[2], local[0]) / (2*np.pi)) + 0.5
+            v = (np.arcsin(np.clip(local[1] / self.radius, -1.0, 1.0)) / np.pi) + 0.5
+            return Intercept(hit_point, normal, far_distance, dir, self, uv=(float(u), float(v)))
         
         # Ambas están detrás del origen
         return None  # Cambié de (False, None) a None
@@ -96,7 +103,22 @@ class Plane(Shape):
         if t < 1e-4:
             return None
         hit_point = orig + dir * t
-        return Intercept(hit_point, self.normal, t, dir, self)
+        # Planar UVs: project to plane axes; build tangent basis from normal
+        # Choose major axis for stable parameterization
+        n = self.normal
+        # Find an arbitrary tangent not parallel to n
+        ref = np.array([1,0,0]) if abs(n[0]) < 0.9 else np.array([0,1,0])
+        tangent = np.cross(ref, n)
+        tangent /= (np.linalg.norm(tangent) + 1e-12)
+        bitangent = np.cross(n, tangent)
+        # Compute local coords
+        local = hit_point - np.array(self.position)
+        u = float(np.dot(local, tangent))
+        v = float(np.dot(local, bitangent))
+        # Tile by fractional part to [0,1]
+        u = u - np.floor(u)
+        v = v - np.floor(v)
+        return Intercept(hit_point, self.normal, t, dir, self, uv=(u, v), tangent=tangent, bitangent=bitangent)
 
 
 class Disk(Shape):
@@ -122,7 +144,18 @@ class Disk(Shape):
         # Comprobar dentro del radio
         if np.linalg.norm(hit_point - np.array(self.position)) > self.radius:
             return None
-        return Intercept(hit_point, self.normal, t, dir, self)
+        # Polar UV mapping on disk
+        local = hit_point - np.array(self.position)
+        angle = np.arctan2(local[2], local[0])
+        u = (angle / (2*np.pi)) + 0.5
+        r = min(1.0, np.linalg.norm([local[0], local[2]]) / max(1e-8, self.radius))
+        v = r
+        # Tangent basis
+        n = self.normal
+        ref = np.array([1,0,0]) if abs(n[0]) < 0.9 else np.array([0,1,0])
+        tangent = np.cross(ref, n); tangent /= (np.linalg.norm(tangent)+1e-12)
+        bitangent = np.cross(n, tangent)
+        return Intercept(hit_point, self.normal, t, dir, self, uv=(float(u), float(v)), tangent=tangent, bitangent=bitangent)
 
 
 class Triangle(Shape):
@@ -273,7 +306,30 @@ class OrientedBox(Shape):
         world_hit = self.R @ local_hit + np.array(self.position)
         world_normal = self.R @ normal_local
         world_normal /= (np.linalg.norm(world_normal) + 1e-12)
-        return Intercept(world_hit, world_normal, t, dir, self)
+        # Simple box UVs: project to dominant axis normal in local space
+        # Recompute hit face in local to assign UVs
+        # Note: we already have local_hit
+        # Build local tangent/bitangent based on face axis
+        axis = np.argmax(np.abs(normal_local))
+        if axis == 0:
+            # +/-X face: use Y,Z
+            u = (local_hit[2] / (2*self.half[2])) + 0.5
+            v = (local_hit[1] / (2*self.half[1])) + 0.5
+            t_local = np.array([0,0,1]); b_local = np.array([0,1,0])
+        elif axis == 1:
+            # +/-Y face: use X,Z
+            u = (local_hit[0] / (2*self.half[0])) + 0.5
+            v = (local_hit[2] / (2*self.half[2])) + 0.5
+            t_local = np.array([1,0,0]); b_local = np.array([0,0,1])
+        else:
+            # +/-Z face: use X,Y
+            u = (local_hit[0] / (2*self.half[0])) + 0.5
+            v = (local_hit[1] / (2*self.half[1])) + 0.5
+            t_local = np.array([1,0,0]); b_local = np.array([0,1,0])
+        # Transform T/B to world
+        tangent = self.R @ t_local
+        bitangent = self.R @ b_local
+        return Intercept(world_hit, world_normal, t, dir, self, uv=(float(u), float(v)), tangent=tangent, bitangent=bitangent)
 
 
 class Ellipsoid(Shape):
@@ -333,7 +389,18 @@ class Ellipsoid(Shape):
         world_hit = self.R @ local_hit + np.array(self.position)
         world_normal = self.R @ local_normal
         world_normal /= (np.linalg.norm(world_normal) + 1e-12)
-        return Intercept(world_hit, world_normal, t, dir, self)
+        # Spherical-like UVs using local_hit and radii
+        local = local_hit
+        # Normalize to unit sphere space
+        p = local / (self.radii + 1e-12)
+        u = (np.arctan2(p[2], p[0]) / (2*np.pi)) + 0.5
+        v = (np.arcsin(np.clip(p[1], -1.0, 1.0)) / np.pi) + 0.5
+        # Approximate tangent basis from world_normal
+        n = world_normal
+        ref = np.array([1,0,0]) if abs(n[0]) < 0.9 else np.array([0,1,0])
+        tangent = np.cross(ref, n); tangent /= (np.linalg.norm(tangent)+1e-12)
+        bitangent = np.cross(n, tangent)
+        return Intercept(world_hit, world_normal, t, dir, self, uv=(float(u), float(v)), tangent=tangent, bitangent=bitangent)
 
 
 class ChickenLeg(Shape):
@@ -511,5 +578,135 @@ class Cylinder(Shape):
         world_hit = self.R @ local_hit + np.array(self.position)
         world_normal = self.R @ best_normal_local
         world_normal /= (np.linalg.norm(world_normal) + 1e-12)
-        return Intercept(world_hit, world_normal, best_t, dir, self)
+        # UVs: cylindrical mapping on lateral; planar on caps
+        # Determine if lateral hit by checking normal's y in local space
+        # We have local_hit and best_normal_local
+        lateral = abs(best_normal_local[1]) < 1e-6
+        if lateral:
+            angle = np.arctan2(local_hit[2], local_hit[0])
+            u = (angle / (2*np.pi)) + 0.5
+            v = (local_hit[1] / (2*self.half_h)) + 0.5
+        else:
+            # cap: map x,z to [0,1]
+            u = (local_hit[0] / (2*self.radius)) + 0.5
+            v = (local_hit[2] / (2*self.radius)) + 0.5
+        # Tangent basis in world from local axes
+        t_local = np.array([1,0,0]) if lateral else np.array([1,0,0])
+        b_local = np.array([0,1,0]) if lateral else np.array([0,0,1])
+        tangent = self.R @ t_local
+        bitangent = self.R @ b_local
+        return Intercept(world_hit, world_normal, best_t, dir, self, uv=(float(u), float(v)), tangent=tangent, bitangent=bitangent)
     
+
+class EllipticCylinder(Shape):
+    """Elliptical cylinder with radii (rx, rz), height, and optional rotation Euler.
+    Lateral equation: (x^2/rx^2) + (z^2/rz^2) = 1, with y in [-h/2, h/2].
+    """
+    def __init__(self, position, radii_xz, height, material, rotation=None):
+        super().__init__(position, material)
+        self.type = "EllipticCylinder"
+        self.rx = float(radii_xz[0])
+        self.rz = float(radii_xz[1])
+        self.height = float(height)
+        self.half_h = self.height * 0.5
+        # Precompute inverse squares for robust math
+        self.invx2 = 1.0 / max(1e-12, self.rx * self.rx)
+        self.invz2 = 1.0 / max(1e-12, self.rz * self.rz)
+        if rotation is None:
+            self.rotation = (0.0, 0.0, 0.0)
+            self.R = np.eye(3)
+            self.RT = self.R
+        else:
+            self.rotation = rotation
+            rx, ry, rz = rotation
+            cx, sx = np.cos(rx), np.sin(rx)
+            cy, sy = np.cos(ry), np.sin(ry)
+            cz, sz = np.cos(rz), np.sin(rz)
+            Rx = np.array([[1,0,0],[0,cx,-sx],[0,sx,cx]])
+            Ry = np.array([[cy,0,sy],[0,1,0],[-sy,0,cy]])
+            Rz = np.array([[cz,-sz,0],[sz,cz,0],[0,0,1]])
+            self.R = Rz @ Ry @ Rx
+            self.RT = self.R.T
+
+    def ray_intersect(self, orig, dir):
+        orig = np.array(orig, dtype=float)
+        dir = np.array(dir, dtype=float)
+        # Transform to local space
+        local_orig = self.RT @ (orig - np.array(self.position))
+        local_dir = self.RT @ dir
+        dx, dy, dz = local_dir
+        ox, oy, oz = local_orig
+
+        # Lateral intersection: a t^2 + b t + c = 0 for ellipse in XZ
+        a = dx*dx * self.invx2 + dz*dz * self.invz2
+        t_side = None
+        normal_side_local = None
+        if a > 1e-12:
+            b = 2.0 * (ox*dx * self.invx2 + oz*dz * self.invz2)
+            c = ox*ox * self.invx2 + oz*oz * self.invz2 - 1.0
+            disc = b*b - 4*a*c
+            if disc >= 0.0:
+                sqrt_disc = np.sqrt(disc)
+                t0 = (-b - sqrt_disc) / (2*a)
+                t1 = (-b + sqrt_disc) / (2*a)
+                for t_candidate in [t0, t1]:
+                    if t_candidate > 1e-4:
+                        y_hit = oy + t_candidate * dy
+                        if -self.half_h - 1e-5 <= y_hit <= self.half_h + 1e-5:
+                            if t_side is None or t_candidate < t_side:
+                                t_side = t_candidate
+                if t_side is not None:
+                    hit_local = local_orig + local_dir * t_side
+                    nx = hit_local[0] * self.invx2
+                    nz = hit_local[2] * self.invz2
+                    n = np.array([nx, 0.0, nz], dtype=float)
+                    ln = np.linalg.norm(n)
+                    if ln > 0:
+                        normal_side_local = n / ln
+
+        # Caps at y = +/- half_h
+        t_caps = []
+        if abs(dy) > 1e-12:
+            # Top cap
+            t_top = (self.half_h - oy) / dy
+            if t_top > 1e-4:
+                xh = ox + t_top * dx
+                zh = oz + t_top * dz
+                if xh*xh * self.invx2 + zh*zh * self.invz2 <= 1.0 + 1e-6:
+                    t_caps.append((t_top, np.array([0, 1, 0], dtype=float)))
+            # Bottom cap
+            t_bottom = (-self.half_h - oy) / dy
+            if t_bottom > 1e-4:
+                xh = ox + t_bottom * dx
+                zh = oz + t_bottom * dz
+                if xh*xh * self.invx2 + zh*zh * self.invz2 <= 1.0 + 1e-6:
+                    t_caps.append((t_bottom, np.array([0, -1, 0], dtype=float)))
+
+        # Select nearest valid hit
+        best_t = None
+        best_normal_local = None
+        if t_side is not None:
+            best_t = t_side
+            best_normal_local = normal_side_local
+        for t_cap, n_cap in t_caps:
+            if (best_t is None or t_cap < best_t) and t_cap > 1e-4:
+                best_t = t_cap
+                best_normal_local = n_cap
+        if best_t is None:
+            return None
+
+        local_hit = local_orig + local_dir * best_t
+        world_hit = self.R @ local_hit + np.array(self.position)
+        world_normal = self.R @ best_normal_local
+        world_normal /= (np.linalg.norm(world_normal) + 1e-12)
+        # UVs similar to cylinder but account for ellipse: use angle from center and y along height
+        angle = np.arctan2(local_hit[2]/max(1e-8,self.rz), local_hit[0]/max(1e-8,self.rx))
+        u = (angle / (2*np.pi)) + 0.5
+        v = (local_hit[1] / (2*self.half_h)) + 0.5
+        # Tangent basis from local axes
+        t_local = np.array([1,0,0])
+        b_local = np.array([0,1,0])
+        tangent = self.R @ t_local
+        bitangent = self.R @ b_local
+        return Intercept(world_hit, world_normal, best_t, dir, self, uv=(float(u), float(v)), tangent=tangent, bitangent=bitangent)
+
