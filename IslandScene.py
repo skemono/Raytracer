@@ -14,7 +14,7 @@ from material import Material
 from bmp_texture import BMPTexture
 from image_texture import ImageTexture, load_texture_any
 from lights import AmbientLight, DirectionalLight
-from figures import OrientedBox, Ellipsoid, Cylinder, EllipticCylinder, deg
+from figures import OrientedBox, Ellipsoid, Cylinder, EllipticCylinder, Plane, Sphere, Disk, Cube, Capsule, Cone, deg
 
 WIDTH = 800
 HEIGHT = 800
@@ -243,50 +243,243 @@ def main():
 
     # Estatua humanoide con primitivas, colocada sobre el borde superior y mirando al Noroeste (yaw = +45°)
     yaw_nw = 45.0
+    statue_scale = 4.0 * (2.0/3.0)
+    statue_offset_x_rel = -1.5  
 
     # Ayudante para componer posición de mundo con Y de mundo personalizada
     def world_pos(x_rel: float, y_world: float, z_rel: float):
-        px, _, pz = to_world([x_rel, 0, z_rel])
+        # Aplicar offset lateral relativo para mover la estatua a la izquierda
+        px, _, pz = to_world([x_rel + statue_offset_x_rel, 0, z_rel])
         return [px, y_world, pz]
 
     base_y = rim_top_y  # los pies tocan la superficie del borde
 
     # Pies (bloques delgados)
-    foot_h = size_scaled(0.3)
-    foot_half = [size_scaled(0.35)/2.0, foot_h/2.0, size_scaled(0.7)/2.0]
+    foot_h = size_scaled(0.3) * statue_scale
+    foot_half = [size_scaled(0.35) * statue_scale / 2.0, foot_h/2.0, size_scaled(0.7) * statue_scale / 2.0]
     foot_y = base_y + foot_half[1]
-    foot_x_offset = size_scaled(0.6)
+    foot_x_rel = 0.6 * statue_scale
     # Pie izquierdo y derecho (rotados para alinear con la dirección)
-    rend.scene.append(OrientedBox(position=world_pos(-foot_x_offset, foot_y, 4.0), half_sizes=foot_half, rotation=deg(0, yaw_nw, 0), material=statue_mat))
-    rend.scene.append(OrientedBox(position=world_pos(+foot_x_offset, foot_y, 4.0), half_sizes=foot_half, rotation=deg(0, yaw_nw, 0), material=statue_mat))
+    rend.scene.append(OrientedBox(position=world_pos(-foot_x_rel, foot_y, 4.0), half_sizes=foot_half, rotation=deg(0, yaw_nw, 0), material=statue_mat))
+    rend.scene.append(OrientedBox(position=world_pos(+foot_x_rel, foot_y, 4.0), half_sizes=foot_half, rotation=deg(0, yaw_nw, 0), material=statue_mat))
 
     # Piernas (cilindros verticales)
-    leg_h = size_scaled(3.4)
-    leg_r = size_scaled(0.35)
+    leg_h = size_scaled(3.4) * statue_scale
+    leg_r = size_scaled(0.35) * statue_scale
     leg_y = base_y + foot_h + leg_h/2.0
-    rend.scene.append(Cylinder(position=world_pos(-foot_x_offset, leg_y, 4.0), radius=leg_r, height=leg_h, material=statue_mat, rotation=deg(0, yaw_nw, 0)))
-    rend.scene.append(Cylinder(position=world_pos(+foot_x_offset, leg_y, 4.0), radius=leg_r, height=leg_h, material=statue_mat, rotation=deg(0, yaw_nw, 0)))
+    rend.scene.append(Cylinder(position=world_pos(-foot_x_rel, leg_y, 4.0), radius=leg_r, height=leg_h, material=statue_mat, rotation=deg(0, yaw_nw, 0)))
+    rend.scene.append(Cylinder(position=world_pos(+foot_x_rel, leg_y, 4.0), radius=leg_r, height=leg_h, material=statue_mat, rotation=deg(0, yaw_nw, 0)))
 
     # Torso (elipsoide)
-    torso_rx, torso_ry, torso_rz = size_scaled(1.1), size_scaled(1.7), size_scaled(0.8)
+    torso_rx, torso_ry, torso_rz = size_scaled(1.1) * statue_scale, size_scaled(1.7) * statue_scale, size_scaled(0.8) * statue_scale
     torso_y = base_y + foot_h + leg_h + torso_ry
     rend.scene.append(Ellipsoid(position=world_pos(0.0, torso_y, 4.0), radii=[torso_rx, torso_ry, torso_rz], material=statue_mat, rotation=deg(0, yaw_nw, 0)))
 
     # Cabeza (elipsoide)
-    head_rx, head_ry, head_rz = size_scaled(0.55), size_scaled(0.75), size_scaled(0.55)
-    neck_gap = size_scaled(0.2)
+    head_rx, head_ry, head_rz = size_scaled(0.55) * statue_scale, size_scaled(0.75) * statue_scale, size_scaled(0.55) * statue_scale
+    neck_gap = size_scaled(0.2) * statue_scale
     head_y = torso_y + torso_ry + neck_gap + head_ry
     rend.scene.append(Ellipsoid(position=world_pos(0.0, head_y, 4.0), radii=[head_rx, head_ry, head_rz], material=statue_mat, rotation=deg(0, yaw_nw, 0)))
 
     # Brazos (cilindros) colgando con ligera inclinación
-    arm_r = size_scaled(0.25)
-    arm_h = size_scaled(2.6)
+    arm_r = size_scaled(0.25) * statue_scale
+    arm_h = size_scaled(2.6) * statue_scale
     shoulder_y = torso_y + torso_ry*0.6
     arm_y = shoulder_y - arm_h/2.0
-    shoulder_x = size_scaled(1.2)
+    shoulder_x = size_scaled(1.2) * statue_scale
     # Pequeño roll hacia afuera (rx) y yaw hacia la dirección de mirada
     rend.scene.append(Cylinder(position=world_pos(-shoulder_x, arm_y, 4.0), radius=arm_r, height=arm_h, material=statue_mat, rotation=deg(6, yaw_nw, 0)))
     rend.scene.append(Cylinder(position=world_pos(+shoulder_x, arm_y, 4.0), radius=arm_r, height=arm_h, material=statue_mat, rotation=deg(-6, yaw_nw, 0)))
+
+    # Detalles de capa (estatua encapuchada)
+    # Cuerpo de la capa: elipsoide más grande que envuelve el torso
+    cloak_rx, cloak_ry, cloak_rz = torso_rx * 1.6, torso_ry * 1.6, max(torso_rz * 1.8, torso_rx * 1.2)
+    cloak_y = torso_y - torso_ry * 0.2
+    rend.scene.append(Ellipsoid(position=world_pos(0.0, cloak_y, 4.0), radii=[cloak_rx, cloak_ry, cloak_rz], material=statue_mat, rotation=deg(0, yaw_nw, 0)))
+
+    # Falda de la capa: cilindro elíptico corto alrededor de las piernas
+    skirt_h = size_scaled(1.6) * statue_scale
+    skirt_rx, skirt_rz = max(leg_r * 5.0, size_scaled(1.6) * statue_scale), max(leg_r * 4.0, size_scaled(1.4) * statue_scale)
+    skirt_center_y = base_y + foot_h + (skirt_h * 0.5)
+    rend.scene.append(EllipticCylinder(position=world_pos(0.0, skirt_center_y, 4.0), radii_xz=[skirt_rx, skirt_rz], height=skirt_h, material=statue_mat, rotation=deg(0, yaw_nw, 0)))
+
+    # Capucha: elipsoide que envuelve la cabeza, ligeramente adelantada en la dirección de mirada
+    import math as _math
+    yaw_r = _math.radians(yaw_nw)
+    fwd_x = _math.sin(yaw_r)
+    fwd_z = _math.cos(yaw_r)
+    hood_rx, hood_ry, hood_rz = head_rx * 1.3, head_ry * 1.25, head_rz * 1.3
+    hood_off_rel = 0.25 * statue_scale
+    rend.scene.append(Ellipsoid(position=world_pos(fwd_x * hood_off_rel, head_y + head_ry * 0.15, 4.0 - fwd_z * hood_off_rel), radii=[hood_rx, hood_ry, hood_rz], material=statue_mat, rotation=deg(0, yaw_nw, 0)))
+
+    # Pliegues de la capa en hombros: OBBs delgados
+    fold_w, fold_d, fold_h = size_scaled(0.6) * statue_scale, size_scaled(0.3) * statue_scale, size_scaled(1.2) * statue_scale
+    fold_y = shoulder_y
+    shoulder_x_rel = 1.2 * statue_scale
+    rend.scene.append(OrientedBox(position=world_pos(-shoulder_x_rel*0.9, fold_y, 4.0), half_sizes=[fold_w/2.0, fold_h/2.0, fold_d/2.0], rotation=deg(-10, yaw_nw, 8), material=statue_mat))
+    rend.scene.append(OrientedBox(position=world_pos(+shoulder_x_rel*0.9, fold_y, 4.0), half_sizes=[fold_w/2.0, fold_h/2.0, fold_d/2.0], rotation=deg(10, yaw_nw, -8), material=statue_mat))
+
+    # Brazos detallados con articulaciones (cápsulas) y manos
+    upper_len_rel = 1.6 * statue_scale
+    fore_len_rel = 1.4 * statue_scale
+    elbow_drop = size_scaled(0.6) * statue_scale
+    wrist_drop = size_scaled(0.5) * statue_scale
+    right_vec = np.array([_math.cos(yaw_r), 0.0, -_math.sin(yaw_r)])
+
+    def arm_chain(side=1):
+        sx = side  # +1 derecha, -1 izquierda en coords relativas
+        sh_x_rel = shoulder_x_rel * sx
+        # Hombro, codo, muñeca en coordenadas relativas (x,z), y en world
+        elbow_x_rel = sh_x_rel + fwd_x * (upper_len_rel*0.5)
+        elbow_z_rel = 4.0 - fwd_z * (upper_len_rel*0.5)
+        wrist_x_rel = sh_x_rel + fwd_x * (upper_len_rel + fore_len_rel*0.4)
+        wrist_z_rel = 4.0 - fwd_z * (upper_len_rel + fore_len_rel*0.4)
+        shoulder_world = world_pos(sh_x_rel, shoulder_y, 4.0)
+        elbow_world = world_pos(elbow_x_rel, shoulder_y - elbow_drop, elbow_z_rel)
+        wrist_world = world_pos(wrist_x_rel, (shoulder_y - elbow_drop) - wrist_drop, wrist_z_rel)
+        rad = size_scaled(0.22) * statue_scale
+        rend.scene.append(Capsule(point_a=shoulder_world, point_b=elbow_world, radius=rad, material=statue_mat))
+        rend.scene.append(Capsule(point_a=elbow_world, point_b=wrist_world, radius=rad*0.95, material=statue_mat))
+        # Mano
+        hand_r = size_scaled(0.3) * statue_scale
+        rend.scene.append(Sphere(position=wrist_world, radius=hand_r, material=statue_mat))
+
+    arm_chain(side=+1)
+    arm_chain(side=-1)
+
+    # Rodilleras y botas
+    knee_y = base_y + foot_h + leg_h*0.45
+    knee_r = size_scaled(0.35) * statue_scale
+    rend.scene.append(Ellipsoid(position=world_pos(-foot_x_rel, knee_y, 4.0), radii=[knee_r, knee_r*0.7, knee_r], material=statue_mat))
+    rend.scene.append(Ellipsoid(position=world_pos(+foot_x_rel, knee_y, 4.0), radii=[knee_r, knee_r*0.7, knee_r], material=statue_mat))
+    boot_h = size_scaled(0.6) * statue_scale
+    boot_half = [size_scaled(0.5) * statue_scale / 2.0, boot_h/2.0, size_scaled(0.9) * statue_scale / 2.0]
+    boot_y = base_y + boot_half[1]
+    rend.scene.append(OrientedBox(position=world_pos(-foot_x_rel, boot_y, 4.0), half_sizes=boot_half, rotation=deg(0, yaw_nw, 0), material=statue_mat))
+    rend.scene.append(OrientedBox(position=world_pos(+foot_x_rel, boot_y, 4.0), half_sizes=boot_half, rotation=deg(0, yaw_nw, 0), material=statue_mat))
+    # Punta del pie
+    toe_r = size_scaled(0.3) * statue_scale
+    rend.scene.append(Sphere(position=world_pos(-foot_x_rel + fwd_x*0.5*statue_scale, base_y + toe_r*0.6, 4.0 - fwd_z*0.5*statue_scale), radius=toe_r, material=statue_mat))
+    rend.scene.append(Sphere(position=world_pos(+foot_x_rel + fwd_x*0.5*statue_scale, base_y + toe_r*0.6, 4.0 - fwd_z*0.5*statue_scale), radius=toe_r, material=statue_mat))
+
+    # Cinturón y medallón
+    belt_h = size_scaled(0.25) * statue_scale
+    belt_rx, belt_rz = size_scaled(1.3) * statue_scale, size_scaled(1.0) * statue_scale
+    belt_y = base_y + foot_h + leg_h + belt_h
+    rend.scene.append(EllipticCylinder(position=world_pos(0.0, belt_y, 4.0), radii_xz=[belt_rx, belt_rz], height=belt_h, material=statue_mat, rotation=deg(0, yaw_nw, 0)))
+    med_r = size_scaled(0.35) * statue_scale
+    rend.scene.append(Disk(position=world_pos(fwd_x*0.2*statue_scale, torso_y, 4.0 - fwd_z*0.2*statue_scale), normal=[0,1,0], radius=med_r, material=statue_mat))
+
+    # Protector de hombros (hombreras) – elipsoides ensanchados
+    pauld_r = size_scaled(0.6) * statue_scale
+    rend.scene.append(Ellipsoid(position=world_pos(-shoulder_x_rel, shoulder_y + pauld_r*0.4, 4.0), radii=[pauld_r*1.3, pauld_r*0.7, pauld_r], material=statue_mat, rotation=deg(0, yaw_nw, -15)))
+    rend.scene.append(Ellipsoid(position=world_pos(+shoulder_x_rel, shoulder_y + pauld_r*0.4, 4.0), radii=[pauld_r*1.3, pauld_r*0.7, pauld_r], material=statue_mat, rotation=deg(0, yaw_nw, 15)))
+
+    # Brazaletes cerca de las muñecas
+    br_h = size_scaled(0.35) * statue_scale
+    br_r = size_scaled(0.35) * statue_scale
+    # usar las muñecas calculadas en arm_chain: replicar aproximación rápida
+    for sx in (-1, 1):
+        wx_rel = (shoulder_x_rel * sx) + fwd_x * (upper_len_rel + fore_len_rel*0.4)
+        wz_rel = 4.0 - fwd_z * (upper_len_rel + fore_len_rel*0.4)
+        wy = (shoulder_y - elbow_drop) - wrist_drop
+        rend.scene.append(Cylinder(position=world_pos(wx_rel, wy, wz_rel), radius=br_r, height=br_h, material=statue_mat, rotation=deg(0, yaw_nw, 0)))
+
+    # Dedos estilizados (pequeños conos) apuntando hacia la dirección de mirada
+    finger_h = size_scaled(0.35) * statue_scale
+    finger_r = size_scaled(0.12) * statue_scale
+    for sx in (-1, 1):
+        base_x = (shoulder_x_rel * sx) + fwd_x * (upper_len_rel + fore_len_rel*0.4)
+        base_z = 4.0 - fwd_z * (upper_len_rel + fore_len_rel*0.4)
+        base_y = (shoulder_y - elbow_drop) - wrist_drop
+        for i in range(3):
+            offx = (i - 1) * size_scaled(0.12) * statue_scale
+            rend.scene.append(Cone(position=world_pos(base_x + offx, base_y + finger_h*0.4, base_z), radius=finger_r, height=finger_h, material=statue_mat))
+
+    # Borde rígido de la capucha
+    rim_rx = head_rx * 1.45
+    rim_ry = head_ry * 0.25
+    rim_rz = head_rz * 1.45
+    rim_off = hood_off_rel + 0.1 * statue_scale
+    rend.scene.append(Ellipsoid(position=world_pos(fwd_x * rim_off, head_y + head_ry * 0.25, 4.0 - fwd_z * rim_off), radii=[rim_rx, rim_ry, rim_rz], material=statue_mat, rotation=deg(0, yaw_nw, 0)))
+
+    # Pliegues adicionales al frente de la capa
+    for s in (-1, 1):
+        rend.scene.append(OrientedBox(position=world_pos(s*0.5*statue_scale, skirt_center_y + skirt_h*0.2, 4.0 - fwd_z*0.2*statue_scale), half_sizes=[size_scaled(0.25)*statue_scale, size_scaled(0.9)*statue_scale/2.0, size_scaled(0.25)*statue_scale], rotation=deg(6*s, yaw_nw, 0), material=statue_mat))
+
+    # Drapeado trasero de la capa
+    back_rx, back_ry, back_rz = skirt_rx*0.9, skirt_h*0.6, skirt_rz*0.95
+    rend.scene.append(Ellipsoid(position=world_pos(-0.2*statue_scale, base_y + foot_h + skirt_h*0.9, 4.0 + 0.4*statue_scale), radii=[back_rx, back_ry, back_rz], material=statue_mat, rotation=deg(0, yaw_nw, 0)))
+
+    # Suelo: plano infinito por debajo de la isla, usando la misma textura que los pilares
+    ground_y = to_world([0, -15, 0])[1]  # un poco más abajo que las bases de los pilares
+    rend.scene.append(Plane(position=[0.0, ground_y, 0.0], normal=[0, 1, 0], material=pillar))
+
+    # Rocas y protuberancias sobre el suelo (plano infinito)
+    # Usar SIEMPRE la textura del plano (pilares) para estas rocas
+    def add_ground_rock_sphere(x_rel, z_rel, r_rel, bury=0.3, mat=pillar):
+        r = size_scaled(r_rel)
+        y = ground_y + r * (1.0 - bury)
+        rend.scene.append(Sphere(position=world_pos(x_rel, y, z_rel), radius=r, material=mat))
+
+    def add_ground_rock_ellipsoid(x_rel, z_rel, rx_rel, ry_rel, rz_rel, bury=0.4, mat=pillar_light):
+        rx, ry, rz = size_scaled(rx_rel), size_scaled(ry_rel), size_scaled(rz_rel)
+        y = ground_y + ry * (1.0 - bury)
+        rend.scene.append(Ellipsoid(position=world_pos(x_rel, y, z_rel), radii=[rx, ry, rz], material=mat))
+
+    def add_ground_flat_disk(x_rel, z_rel, rad_rel, mat=pillar_dark):
+        # Disco plano pegado al suelo (tipo losa)
+        rad = size_scaled(rad_rel)
+        rend.scene.append(Disk(position=world_pos(x_rel, ground_y + 1e-3, z_rel), normal=[0,1,0], radius=rad, material=mat))
+
+    # Colocación base (usando materiales de pilar) y luego dispersión aleatoria
+    add_ground_rock_sphere(-10, -6, 1.2, bury=0.45, mat=pillar_dark)
+    add_ground_rock_sphere(9, -7, 0.9, bury=0.35, mat=pillar)
+    add_ground_rock_ellipsoid(-6, -9, 1.6, 0.9, 1.2, bury=0.5, mat=pillar_light)
+    add_ground_rock_ellipsoid(12, -5, 1.2, 0.8, 1.0, bury=0.4, mat=pillar)
+    add_ground_flat_disk(6, -8, 1.8, mat=pillar_dark)
+    add_ground_flat_disk(-12, -4, 1.4, mat=pillar)
+
+    # Dispersión amplia de rocas por el plano (todas con texturas de pilar)
+    random.seed(7)
+    def scatter_ground_rocks(count=28, x_range=(-16, 16), z_range=(-16, -2)):
+        for _ in range(count):
+            x = random.uniform(x_range[0], x_range[1])
+            z = random.uniform(z_range[0], z_range[1])
+            t = random.random()
+            mat = random.choice([pillar, pillar_dark, pillar_light])
+            if t < 0.35:
+                add_ground_rock_sphere(x, z, random.uniform(0.5, 1.6), bury=random.uniform(0.3, 0.6), mat=mat)
+            elif t < 0.7:
+                add_ground_rock_ellipsoid(x, z, random.uniform(0.6, 1.8), random.uniform(0.4, 1.0), random.uniform(0.6, 1.6), bury=random.uniform(0.3, 0.6), mat=mat)
+            elif t < 0.85:
+                add_ground_flat_disk(x, z, random.uniform(0.8, 2.2), mat=mat)
+            elif t < 0.93:
+                # Conos tumbados simulando rocas puntiagudas
+                cone_h = size_scaled(random.uniform(1.2, 2.2))
+                cone_r = size_scaled(random.uniform(0.4, 1.0))
+                rend.scene.append(Cone(position=world_pos(x, ground_y + cone_h*0.5, z), radius=cone_r, height=cone_h, material=mat))
+            else:
+                # Cápsulas cortas como cantos rodados
+                r = size_scaled(random.uniform(0.3, 0.8))
+                a = world_pos(x, ground_y + r, z)
+                b = world_pos(x + random.uniform(-0.6, 0.6), ground_y + r + size_scaled(random.uniform(0.4, 1.2)), z + random.uniform(-0.6, 0.6))
+                rend.scene.append(Capsule(point_a=a, point_b=b, radius=r, material=mat))
+    scatter_ground_rocks()
+
+    # Algunos bloques cúbicos semienterrados
+    cube_edge = size_scaled(1.8)
+    rend.scene.append(Cube(position=world_pos(-8, ground_y + cube_edge*0.25, -7), edge=cube_edge, material=rock_dark))
+
+    # Nuevas formas: Cápsula y Cono, visibles en el plano del suelo
+    cap_r = size_scaled(0.7)
+    cap_a = world_pos(4.5, ground_y + cap_r, -10)
+    cap_b = world_pos(4.5, ground_y + cap_r + size_scaled(2.5), -10)
+    rend.scene.append(Capsule(point_a=cap_a, point_b=cap_b, radius=cap_r, material=pillar_light))
+
+    cone_h = size_scaled(3.2)
+    cone_r = size_scaled(1.2)
+    rend.scene.append(Cone(position=world_pos(-3.5, ground_y + cone_h*0.5, -11), radius=cone_r, height=cone_h, material=pillar))
 
     # Pilares de fondo (cilindros) – la y de la especificación es la base; convertir a centro sumando h/2
     def add_pillar(px, base_y, pz, radius, height):

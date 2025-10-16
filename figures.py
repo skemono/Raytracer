@@ -710,3 +710,168 @@ class EllipticCylinder(Shape):
         bitangent = self.R @ b_local
         return Intercept(world_hit, world_normal, best_t, dir, self, uv=(float(u), float(v)), tangent=tangent, bitangent=bitangent)
 
+
+class Capsule(Shape):
+    """Cápsula definida por dos puntos (pa,pb) y un radio: unión de un cilindro y dos semiesferas.
+    Intersección basada en distancia a segmento. UVs: u=ángulo alrededor del eje, v=a lo largo del segmento.
+    """
+    def __init__(self, point_a, point_b, radius, material):
+        super().__init__(position=[(point_a[0]+point_b[0])/2.0, (point_a[1]+point_b[1])/2.0, (point_a[2]+point_b[2])/2.0], material=material)
+        self.type = "Capsule"
+        self.pa = np.array(point_a, dtype=float)
+        self.pb = np.array(point_b, dtype=float)
+        self.radius = float(radius)
+        self.ba = self.pb - self.pa
+        self.len2 = float(np.dot(self.ba, self.ba))
+
+    def _intersect_capsule(self, orig, dir):
+        pa = self.pa; pb = self.pb
+        ba = self.ba
+        oa = orig - pa
+        baba = np.dot(ba, ba)
+        bard = np.dot(ba, dir)
+        baoa = np.dot(ba, oa)
+        r2 = self.radius * self.radius
+        a_coef = baba - bard * bard
+        b_coef = baba * np.dot(oa, dir) - baoa * bard
+        c_coef = baba * np.dot(oa, oa) - baoa * baoa - r2 * baba
+        h = b_coef * b_coef - a_coef * c_coef
+        if h >= 0.0:
+            h = np.sqrt(h)
+            t = (-b_coef - h) / (a_coef + 1e-12)
+            y = baoa + t * bard
+            if 0.0 <= y <= baba and t > 1e-4:
+                hit_point = orig + dir * t
+                cp = pa + ba * (y / baba)
+                normal = hit_point - cp
+                normal /= (np.linalg.norm(normal) + 1e-12)
+                return t, hit_point, normal, y
+            # Tapas esféricas
+            for center in (pa, pb):
+                oc = orig - center
+                b_ = np.dot(oc, dir)
+                c_ = np.dot(oc, oc) - r2
+                disc = b_*b_ - c_
+                if disc >= 0:
+                    s = -b_ - np.sqrt(disc)
+                    if s > 1e-4:
+                        hp = orig + dir * s
+                        n = (hp - center) / self.radius
+                        # y en extremos
+                        y = 0.0 if center is pa else baba
+                        return s, hp, n, y
+        return None
+
+    def ray_intersect(self, orig, dir):
+        orig = np.array(orig, dtype=float)
+        dir = np.array(dir, dtype=float)
+        res = self._intersect_capsule(orig, dir)
+        if res is None:
+            return None
+        t, hit, normal, y_along = res
+        # UV: construir base ortonormal alrededor del eje
+        u_axis = self.ba / (np.linalg.norm(self.ba) + 1e-12)
+        ref = np.array([1,0,0]) if abs(u_axis[0]) < 0.9 else np.array([0,1,0])
+        t1 = np.cross(u_axis, ref); t1 /= (np.linalg.norm(t1) + 1e-12)
+        t2 = np.cross(u_axis, t1)
+        cp = self.pa + u_axis * (y_along / (np.linalg.norm(self.ba) + 1e-12)) * np.linalg.norm(self.ba)
+        radial = hit - cp
+        a = float(np.arctan2(np.dot(radial, t2), np.dot(radial, t1)))
+        u = (a / (2*np.pi)) + 0.5
+        v = float(np.clip(y_along / (self.len2 ** 0.5 + 1e-12), 0.0, 1.0))
+        return Intercept(hit, normal, t, dir, self, uv=(u, v), tangent=t1, bitangent=t2)
+
+
+class Cone(Shape):
+    """Cono recto finito alineado al eje local Y, con radio en la base y altura.
+    Base en y = -h/2, vértice en y = +h/2. Admite rotación Euler.
+    """
+    def __init__(self, position, radius, height, material, rotation=None):
+        super().__init__(position, material)
+        self.type = "Cone"
+        self.radius = float(radius)
+        self.height = float(height)
+        self.half_h = self.height * 0.5
+        self.k = (self.radius / self.height) if self.height != 0 else 0.0  # pendiente
+        if rotation is None:
+            self.rotation = (0.0, 0.0, 0.0)
+            self.R = np.eye(3)
+            self.RT = self.R
+        else:
+            self.rotation = rotation
+            rx, ry, rz = rotation
+            cx, sx = np.cos(rx), np.sin(rx)
+            cy, sy = np.cos(ry), np.sin(ry)
+            cz, sz = np.cos(rz), np.sin(rz)
+            Rx = np.array([[1,0,0],[0,cx,-sx],[0,sx,cx]])
+            Ry = np.array([[cy,0,sy],[0,1,0],[-sy,0,cy]])
+            Rz = np.array([[cz,-sz,0],[sz,cz,0],[0,0,1]])
+            self.R = Rz @ Ry @ Rx
+            self.RT = self.R.T
+
+    def ray_intersect(self, orig, dir):
+        orig = np.array(orig, dtype=float)
+        dir = np.array(dir, dtype=float)
+        # Transformar a espacio local del cono
+        local_o = self.RT @ (orig - np.array(self.position))
+        local_d = self.RT @ dir
+        ox, oy, oz = local_o
+        dx, dy, dz = local_d
+        # Ecuación lateral: x^2 + z^2 = (k*(y - y_apex))^2, y_apex = +half_h
+        y_apex = self.half_h
+        k2 = self.k * self.k
+        A = dx*dx + dz*dz - k2 * dy*dy
+        B = 2*(ox*dx + oz*dz - k2 * ( (oy - y_apex) * dy ))
+        C = ox*ox + oz*oz - k2 * (oy - y_apex) * (oy - y_apex)
+        t_lateral = None
+        if abs(A) > 1e-12:
+            disc = B*B - 4*A*C
+            if disc >= 0:
+                sqrt_disc = np.sqrt(disc)
+                t0 = (-B - sqrt_disc) / (2*A)
+                t1 = (-B + sqrt_disc) / (2*A)
+                for tc in [t0, t1]:
+                    if tc > 1e-4:
+                        y_hit = oy + tc*dy
+                        if -self.half_h - 1e-5 <= y_hit <= self.half_h + 1e-5:
+                            if t_lateral is None or tc < t_lateral:
+                                t_lateral = tc
+        # Tapa base (círculo) en y = -half_h
+        t_cap = None
+        if abs(dy) > 1e-12:
+            tc = (-self.half_h - oy) / dy
+            if tc > 1e-4:
+                xh = ox + tc*dx
+                zh = oz + tc*dz
+                if xh*xh + zh*zh <= self.radius*self.radius + 1e-6:
+                    t_cap = tc
+        # Elegir la más cercana
+        t = None
+        hit_local = None
+        normal_local = None
+        if t_lateral is not None:
+            t = t_lateral
+            hit_local = local_o + local_d * t
+            q = hit_local[1] - y_apex
+            n = np.array([hit_local[0], -k2 * q, hit_local[2]], dtype=float)
+            ln = np.linalg.norm(n)
+            normal_local = n / (ln + 1e-12)
+        if t_cap is not None and (t is None or t_cap < t):
+            t = t_cap
+            hit_local = local_o + local_d * t
+            normal_local = np.array([0.0, 1.0, 0.0])  # normal hacia arriba en la base
+        if t is None:
+            return None
+        # Transformar a mundo
+        hit_world = self.R @ hit_local + np.array(self.position)
+        normal_world = self.R @ normal_local
+        normal_world /= (np.linalg.norm(normal_world) + 1e-12)
+        # UV cilíndricas
+        u = (np.arctan2(hit_local[2], hit_local[0]) / (2*np.pi)) + 0.5
+        v = (hit_local[1] + self.half_h) / (self.height + 1e-12)
+        # Base T/B aproximadas
+        ref = np.array([1,0,0]) if abs(normal_world[0]) < 0.9 else np.array([0,1,0])
+        tangent = np.cross(ref, normal_world); tangent /= (np.linalg.norm(tangent)+1e-12)
+        bitangent = np.cross(normal_world, tangent)
+        return Intercept(hit_world, normal_world, t, dir, self, uv=(float(u), float(v)), tangent=tangent, bitangent=bitangent)
+
